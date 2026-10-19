@@ -40,7 +40,13 @@ export function leaderboard(state, event) {
           const c = state.cards.find(
             (c) => c.roundId === r.id && c.playerId === p.id,
           );
-          const t = cardTotals(c?.scores || [], r.pars, r.indexes, e.handicap);
+          const settings = roundSettings(state, r, p.id, e.handicap);
+          const t = cardTotals(
+            c?.scores || [],
+            settings.pars,
+            settings.indexes,
+            settings.handicap,
+          );
           for (const k of Object.keys(t)) total[k] += t[k];
           if (c?.status === "Attested") total.attested++;
           return total;
@@ -63,8 +69,11 @@ export function leaderboard(state, event) {
                 state.cards.find(
                   (c) => c.roundId === rounds.at(-1).id && c.playerId === p.id,
                 ).scores,
-                rounds.at(-1),
-                e.handicap,
+                {
+                  ...rounds.at(-1),
+                  ...roundSettings(state, rounds.at(-1), p.id, e.handicap),
+                },
+                roundSettings(state, rounds.at(-1), p.id, e.handicap).handicap,
                 event.format,
               )
             : [],
@@ -113,7 +122,8 @@ export function teamLeaderboard(state, event, roundId) {
   const round = state.rounds.find(
     (r) => r.id === roundId && r.eventId === event.id,
   );
-  if (!round) return [];
+  if (!round || (state.roundTees || []).some((t) => t.roundId === roundId))
+    return [];
   const teams = new Map();
   for (const e of state.entries.filter(
     (e) => e.eventId === event.id && e.status === "Registered" && e.team,
@@ -143,4 +153,15 @@ export function teamLeaderboard(state, event, roundId) {
       };
     })
     .sort((a, b) => !a.thru - !b.thru || a.net - b.net);
+}
+export function roundSettings(state, round, playerId, handicap) {
+  const tee = (state.roundTees || []).find(
+    (t) => t.roundId === round.id && t.playerId === playerId,
+  );
+  return {
+    pars: tee?.pars || round.pars,
+    indexes: tee?.indexes || round.indexes,
+    handicap: tee?.handicap ?? handicap,
+    tee: tee?.tee,
+  };
 }

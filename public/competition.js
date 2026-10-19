@@ -96,3 +96,35 @@ export function teamStandings(state, event) {
     })
     .sort((a, b) => !a.thru - !b.thru || a.net - b.net || b.thru - a.thru);
 }
+export function bracketSeeds(size) {
+  let seeds = [1, 2];
+  while (seeds.length < size) {
+    const sum = seeds.length * 2 + 1;
+    seeds = seeds.flatMap((n) => [n, sum - n]);
+  }
+  return seeds;
+}
+export function playoffResult(match, round, hcpA, hcpB) {
+  const difference = Math.abs(hcpA - hcpB);
+  for (const [i, h] of (match.playoff || []).entries()) {
+    const a =
+        h.scoreA -
+        (hcpA > hcpB
+          ? strokesOnHole(difference, round.indexes[h.hole - 1])
+          : 0),
+      b =
+        h.scoreB -
+        (hcpB > hcpA
+          ? strokesOnHole(difference, round.indexes[h.hole - 1])
+          : 0);
+    if (a !== b)
+      return {
+        winner: a < b ? "A" : "B",
+        label: `Won on playoff hole ${i + 1} (course hole ${h.hole})`,
+      };
+  }
+  return {
+    winner: null,
+    label: `Playoff tied after ${(match.playoff || []).length} holes`,
+  };
+}

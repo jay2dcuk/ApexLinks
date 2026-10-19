@@ -72,15 +72,40 @@ Use `BROWSER_EXECUTABLE=/usr/bin/chromium npm run test:browser` for a system Chr
 
 ## Version 0.3 additions
 
-- Seeded singles-net knockout match play, staged bracket advancement, early results, and organiser-recorded playoff/concession decisions. Brackets accept 2, 4, 8, 16, 32 or 64 entrants; automatic byes and extra-hole score entry are not implemented.
+- Seeded singles-net knockout match play, staged bracket advancement, early results, and organiser-recorded playoff/concession decisions. Version 0.4 accepts 2–64 entrants, fills top-seed byes automatically, and records actual sudden-death playoff holes.
 - Scramble and foursomes share one card per team, with an explicitly entered team playing handicap, version checks, attestation and net team standings. The app records scores; it does not validate on-course shot selection/alternation or calculate federation-specific team allowances.
 - Individual final-round countback (last 9/6/3/1); withdrawal, disqualification and no-return status with reasons. Those statuses are excluded from winning positions. Waiting-list players are admitted in entry order when a place is released before play.
-- Offline score queues for an **already loaded** card. Network failures save the draft to that user's device; Review queued scores offers explicit sync/discard. Conflicts retain local scores for human review. This is not a fully offline PWA: initial page loading and login still require a connection, and device/browser storage must remain available.
+- Offline score queues for an **already loaded** card. Network failures save the draft to that user's device; Review queued scores offers explicit sync/discard. Conflicts retain local scores for human review. Version 0.4 adds an installable app shell and optional offline workspace reload; see the device preparation instructions below. Login and initial preparation still need a connection.
 - Course-local booking hours, slot intervals, closed weekdays and holiday dates. Rules use an IANA timezone and account for daylight saving.
 - Supplied handicap records, atomic JSON import, an allowance calculation, and attested-round exports. Federation records remain labelled unverified until approved provider integration is built.
 - Optional Stripe card checkout with idempotency, signed payment webhooks, and expiry reconciliation; optional Resend single-use password recovery. Tests simulate provider responses; no live payments or emails were sent.
 
 Run `npm run test:browser:advanced` with the same optional Playwright tooling to exercise all seven demo logins, multi-club permissions, scramble cards, match-play results, offline queue/sync and the handicap-record screen.
+
+## Version 0.4 competition and club operations
+
+- **Brackets:** standard seed placement for 2–64 players, automatic top-seed byes, controlled advancement, and recorded extra-hole gross scores with net match-play resolution. An organiser finalises the result. Regulation cards lock once playoff scoring starts; reopening a match archives/reset its playoff sequence before corrections.
+- **Shotgun starts:** choose starting holes, group size and one/two groups per hole. A/B waves start together. The course reservation checks conflicts; individual bookings cannot be created during the shotgun window. Tee-sheet generation locks once scoring starts.
+- **Assigned markers:** organisers link a separate scoring-capable player account to a player's round. Assigned markers can enter that card and attest another person's entry, but cannot attest a card they themselves entered. This does not grant access to another club.
+- **Individual tees:** snapshot a tee set and playing handicap for individual stroke/net/Stableford rounds before scoring. Tee sets must share the same course name. Team and match-play mixed tees are not supported. The net best-ball preview is unavailable when a round has individual tee overrides.
+- **Reusable templates:** clone event settings and round/course snapshots into a dated Draft tournament. Entrants, scores, billing, messages and public sharing links are not copied.
+- **Operations desk:** a transparent event-preparation checklist, manual pace checkpoints and delay flags, incident/resolution tracking, and assigned staff tasks. Readiness is guidance, not a hard start gate. Pace is based on checkpoint reports, not GPS or an automatic emergency response system.
+- **In-app inbox:** club-wide or selected-player messages with explicit read receipts. These do not send email/SMS or push notifications.
+- **Custom report views:** select a supported dataset, columns and optional status filter; save and export a CSV. Only organisers can create/use these views. This is not a freeform document/PDF layout designer. Financial amounts are minor units (pence). Existing restricted export permissions remain in place.
+
+The operations features are intended to improve everyday club workflows. No claim that a competitor lacks a particular feature has been independently verified.
+
+### Prepare a trusted device for offline play
+
+1. While online, sign in and open the event/round you need.
+2. In **Settings**, choose **Enable offline workspace** and accept local device storage. Use a trusted personal device, not a shared kiosk.
+3. The installable shell caches static app assets. The optional workspace snapshot stores the current organisation's permitted data for up to 12 hours; it never stores passwords or session/CSRF tokens. You can reload the prepared app without a connection and enter scores.
+4. Offline saves go into a per-account queue. Once online, use **Review queued scores → Sync card**. The server rechecks the account, organisation permission, round state and original scorecard version. Conflicts retain the local draft for review rather than overwriting the server.
+5. Signing out removes the offline workspace snapshot; queued drafts remain tied to the account. If you sign out offline, server logout is attempted when connectivity returns. Changing accounts or discovering an expired server session clears the previous workspace cache.
+
+Offline sign-in, downloading a new organisation while disconnected, and provider payments/synchronisation without connectivity are not supported. Revocations made on another device cannot be learned while this device is offline; reconnect before relying on current permissions. Local score drafts remain until explicitly synced or discarded. Browser/device storage restrictions can prevent offline preparation. A prepared cached workspace is not a database backup.
+
+Run `npm run test:browser:operations` with the optional Playwright setup to exercise tasks, incidents, inbox/read receipts, report views, templates, shotgun starts, marker permissions, pace reports, cold offline reload, queued synchronisation and offline-cache removal on logout.
 
 ## Demo accounts on Render
 
@@ -111,6 +136,6 @@ For local role testing, run `npm run seed:demo -- --show-password` to generate a
 
 See [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) for Stripe, Resend, England Golf/MyEG and USGA/GHIN access steps, privacy requirements and supported import formats. Card and email adapters require your own provider accounts and secure Render variables. No live MyEG/USGA connection, automatic handicap sync or official score posting exists yet; proprietary endpoints and access rights are not invented.
 
-Remaining product gaps include automatic knockout byes, extra-hole scorecards, full offline app loading, multiple tee sets within one round, automated shotgun assignment, dedicated marker assignment, a custom report designer, recurring billing, refunds, email campaigns/SMS/push, email verification, accounting sync and approved federation API adapters. Team ties currently remain shared; individual countback does not apply to the shared-team leaderboard. Increasing event capacity alone does not automatically promote waiting-list players: use their entry status deliberately, or release a registered entry before play.
+Remaining product gaps include a freeform report/PDF designer, automated recurring billing and refunds, general email campaigns/SMS/push, email verification, accounting synchronisation, approved federation API adapters, and mixed-tee match/team rules. The existing provider adapters still require your own credentials and live verification. Team ties currently remain shared; individual countback does not apply to the shared-team leaderboard. Increasing event capacity alone does not automatically promote waiting-list players: use their entry status deliberately, or release a registered entry before play.
 
 Before production launch, configure and verify real provider services, backups/restoration, monitoring, accessibility/security review and load testing. This version has not undergone independent production certification or a full Golf Genius feature-parity audit.

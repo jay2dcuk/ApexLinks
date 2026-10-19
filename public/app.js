@@ -1,4 +1,22 @@
 import {
+  offlineEnabled,
+  enableOffline,
+  cacheWorkspace,
+  cachedWorkspace,
+  clearOffline,
+} from "./offline.js";
+import {
+  leaderboard as localLeaderboard,
+  teamLeaderboard as localTeams,
+} from "./scoring.js";
+import {
+  operationsView,
+  inboxView,
+  reportsExtension,
+  operationsAction,
+} from "./operations-ui.js";
+import { roundSettings } from "./scoring.js";
+import {
   formats,
   teamFormats,
   matchResult,
@@ -54,7 +72,8 @@ let me = null,
   rows = [],
   teams = [],
   dirty = false,
-  authMode = "login";
+  authMode = "login",
+  offlineSession = false;
 const nav = {
   Overview: "▦",
   Tournaments: "⚑",
@@ -64,6 +83,8 @@ const nav = {
   Memberships: "◎",
   Finance: "£",
   Reports: "↗",
+  Operations: "◈",
+  Inbox: "✉",
   Handicaps: "⌁",
   Settings: "⚙",
 };
@@ -83,6 +104,12 @@ function toast(message) {
   window.toastTimer = setTimeout(() => t.classList.remove("visible"), 5500);
 }
 async function api(path, method = "GET", body) {
+  if (method !== "GET" && !csrf && me && navigator.onLine) {
+    const auth = await (await fetch("/api/auth/me")).json();
+    if (auth.user?.id !== me.id)
+      throw Error("Sign in again with the account that owns these drafts.");
+    csrf = auth.csrf;
+  }
   const res = await fetch("/api/" + path, {
     method,
     headers: {
@@ -102,13 +129,30 @@ async function api(path, method = "GET", body) {
       me = null;
       renderAuth();
     }
-    throw Error(data.error || "Request failed.");
+    const error = Error(data.error || "Request failed.");
+    error.status = res.status;
+    throw error;
   }
   return data;
 }
 const endpoint = (p) => `orgs/${org.id}/${p}`;
 async function loadOrg(id) {
-  const d = await api(`orgs/${id}/state`);
+  let d;
+  try {
+    d = await api(`orgs/${id}/state`);
+    offlineSession = false;
+  } catch (err) {
+    const cached = cachedWorkspace();
+    if (
+      !err.status &&
+      (err instanceof TypeError || !navigator.onLine) &&
+      cached?.org.id === id &&
+      cached.me.id === me?.id
+    ) {
+      d = { organisation: cached.org, state: cached.s };
+      offlineSession = true;
+    } else throw err;
+  }
   org = d.organisation;
   s = d.state;
   sessionStorage.setItem("apex-org", id);
@@ -121,6 +165,8 @@ async function loadOrg(id) {
   if (!s.players.some((p) => p.id === playerId))
     playerId = s.players[0]?.id || "";
   if (page === "Tournament" && eventId) await loadLeaderboard();
+  if (!offlineSession)
+    cacheWorkspace({ me, orgs, org, s, eventId, roundId, playerId, config });
 }
 async function refresh() {
   await loadOrg(org.id);
@@ -134,6 +180,12 @@ async function write(path, body = {}, method = "POST") {
 }
 async function loadLeaderboard() {
   if (!eventId) return;
+  if (offlineSession || !navigator.onLine) {
+    const e = s.events.find((e) => e.id === eventId);
+    rows = localLeaderboard(s, e);
+    teams = localTeams(s, e, roundId);
+    return;
+  }
   const d = await api(endpoint(`leaderboard/${eventId}?round=${roundId}`));
   rows = d.rows;
   teams = d.teams;
@@ -208,6 +260,8 @@ function renderAuth() {
         "POST",
         Object.fromEntries(new FormData(form)),
       );
+      if (cachedWorkspace() && cachedWorkspace().me.id !== d.user.id)
+        clearOffline();
       me = d.user;
       csrf = d.csrf;
       orgs = d.organisations;
@@ -275,7 +329,7 @@ function tournament() {
     "Leaderboard",
     ...(e.format === "Match play" ? ["Matches"] : []),
   ];
-  return `${heading(e.name, `${shortDate(e.date)} · ${e.format} · ${e.status}`, manager() ? button("Edit tournament", "edit-event", "outline") + button("Share leaderboard", "share", "outline") : "")}<div class="filters">${tabs.map((t) => `<button class="${tab === t ? "active" : ""}" data-tab="${t}">${t}</button>`).join("")}</div>${tab === "Overview" ? `<section class="panel detail-summary"><div><div class="eyebrow">ABOUT THE EVENT</div><h2>${esc(e.name)}</h2><p class="multiline">${esc(e.description || "No description added.")}</p></div><div class="summary-numbers"><div><strong>${field().length}/${e.capacity}</strong><span>Registered players</span></div><div><strong>${s.rounds.filter((r) => r.eventId === e.id).length}</strong><span>Rounds</span></div><div><strong>${money(e.fee)}</strong><span>Entry fee · GBP</span></div></div></section>` : tab === "Field" ? fieldView() : tab === "Rounds" ? roundsView() : tab === "Tee sheet" ? teeView() : tab === "Scoring" ? scoringView() : tab === "Matches" ? matchesView() : leaderboardView()}`;
+  return `${heading(e.name, `${shortDate(e.date)} · ${e.format} · ${e.status}`, manager() ? button("Edit tournament", "edit-event", "outline") + button("Share leaderboard", "share", "outline") + button("Save template", "ops-template", "outline") : "")}<div class="filters">${tabs.map((t) => `<button class="${tab === t ? "active" : ""}" data-tab="${t}">${t}</button>`).join("")}</div>${tab === "Overview" ? `<section class="panel detail-summary"><div><div class="eyebrow">ABOUT THE EVENT</div><h2>${esc(e.name)}</h2><p class="multiline">${esc(e.description || "No description added.")}</p></div><div class="summary-numbers"><div><strong>${field().length}/${e.capacity}</strong><span>Registered players</span></div><div><strong>${s.rounds.filter((r) => r.eventId === e.id).length}</strong><span>Rounds</span></div><div><strong>${money(e.fee)}</strong><span>Entry fee · GBP</span></div></div></section>` : tab === "Field" ? fieldView() : tab === "Rounds" ? roundsView() : tab === "Tee sheet" ? teeView() : tab === "Scoring" ? scoringView() : tab === "Matches" ? matchesView() : leaderboardView()}`;
 }
 function fieldView() {
   return `<section class="panel"><div class="panel-head"><h2>Tournament field & waiting list</h2>${manager() || org.role === "player" ? button("＋ Register player", "new-entry", "outline") : ""}</div>${table(
@@ -308,7 +362,7 @@ function roundPicker() {
     : empty("Add a round to get started.");
 }
 function teeView() {
-  return `<section class="panel"><div class="panel-head">${roundPicker()}<div class="button-row">${manager() && round() ? button("Generate pairings", "pairings", "outline") : ""}${button("Print", "print", "outline")}</div></div>${table(
+  return `<section class="panel"><div class="panel-head">${roundPicker()}<div class="button-row">${manager() && round() ? button("Generate pairings", "pairings", "outline") + button("Shotgun start", "ops-shotgun", "outline") + button("Assign marker", "ops-marker", "outline") + button("Individual tees", "ops-tee", "outline") : ""}${button("Print", "print", "outline")}</div></div>${table(
     ["TEE TIME (YOUR TIMEZONE)", "START HOLE", "PLAYERS", ""],
     s.teeTimes
       .filter((t) => t.roundId === roundId)
@@ -326,7 +380,7 @@ function scoringView() {
       "<p>View the leaderboard and tee sheet; your role cannot enter scores.</p>",
     );
   if (teamFormats.includes(event().format)) return teamScoringView();
-  const r = round();
+  let r = round();
   if (!r) return roundPicker();
   const entries = field()
     .filter(
@@ -339,7 +393,15 @@ function scoringView() {
         ),
     )
     .filter(
-      (e) => org.role !== "player" || player(e.playerId)?.email === me.email,
+      (e) =>
+        org.role !== "player" ||
+        player(e.playerId)?.email === me.email ||
+        s.markerAssignments.some(
+          (m) =>
+            m.roundId === roundId &&
+            m.playerId === e.playerId &&
+            player(m.markerPlayerId)?.email === me.email,
+        ),
     );
   if (!entries.length)
     return empty(
@@ -349,15 +411,30 @@ function scoringView() {
   if (!entries.some((e) => e.playerId === playerId))
     playerId = entries[0].playerId;
   const p = player(playerId),
-    entry = entries.find((e) => e.playerId === playerId),
+    entry = {
+      ...entries.find((e) => e.playerId === playerId),
+      handicap: roundSettings(
+        s,
+        r,
+        playerId,
+        entries.find((e) => e.playerId === playerId).handicap,
+      ).handicap,
+    },
     c = s.cards.find((c) => c.roundId === r.id && c.playerId === p.id);
+  r = { ...r, ...roundSettings(s, r, playerId, entry.handicap) };
+  const assigned = s.markerAssignments.some(
+    (m) =>
+      m.roundId === roundId &&
+      m.playerId === playerId &&
+      player(m.markerPlayerId)?.email === me.email,
+  );
   const scores = c?.scores || Array(18).fill(null);
   const t = cardTotals(scores, r.pars, r.indexes, entry.handicap);
   const locked =
     r.status !== "Open" ||
     c?.status === "Attested" ||
     !["Open", "Live"].includes(event().status);
-  return `<section class="panel score-panel"><div class="score-top">${roundPicker()}<label class="inline-label">Player<select id="player-picker">${entries.map((e) => `<option value="${e.playerId}" ${e.playerId === playerId ? "selected" : ""}>${esc(player(e.playerId)?.name)} · HCP ${e.handicap}</option>`).join("")}</select></label></div><div class="score-status"><strong>${esc(c?.status || "Not started")}</strong><span>Gross ${t.thru ? t.gross : "—"} · Net ${t.thru ? t.net : "—"} · ${t.points} points · ${t.thru}/18 holes</span></div><form id="score-form" data-version="${c?.version || 0}"><div class="scorecard">${r.pars.map((par, i) => `<label class="hole"><span>HOLE ${i + 1}</span><small>Par ${par} · SI ${r.indexes[i]}</small><input aria-label="Hole ${i + 1} score" name="hole-${i}" type="number" min="1" max="30" step="1" inputmode="numeric" value="${scores[i] ?? ""}" ${locked ? "disabled" : ""}></label>`).join("")}</div><div class="score-actions"><p>Playing handicap ${entry.handicap}. Blank holes are unplayed.<br>Gross scores only; net strokes and Stableford use this round’s stroke indexes.</p><div class="button-row">${!locked ? '<button class="outline" type="submit" name="mode" value="draft">Save draft</button><button class="primary" type="submit" name="mode" value="submit">Submit card</button>' : ""}${c && scorer() && event().format !== "Match play" && c.status !== "Attested" ? button("Attest card", "attest", "outline") : ""}${c?.status === "Attested" && manager() ? button("Unlock card", "unlock", "outline") : ""}</div></div></form><div class="panel-foot">Another scorer must attest cards entered by a scorer. Organisers may attest or unlock with an audit record. Submitted cards remain editable until attested.</div></section>`;
+  return `<section class="panel score-panel"><div class="score-top">${roundPicker()}<label class="inline-label">Player<select id="player-picker">${entries.map((e) => `<option value="${e.playerId}" ${e.playerId === playerId ? "selected" : ""}>${esc(player(e.playerId)?.name)} · HCP ${e.handicap}</option>`).join("")}</select></label></div><div class="score-status"><strong>${esc(c?.status || "Not started")}</strong><span>Gross ${t.thru ? t.gross : "—"} · Net ${t.thru ? t.net : "—"} · ${t.points} points · ${t.thru}/18 holes</span></div><form id="score-form" data-version="${c?.version || 0}"><div class="scorecard">${r.pars.map((par, i) => `<label class="hole"><span>HOLE ${i + 1}</span><small>Par ${par} · SI ${r.indexes[i]}</small><input aria-label="Hole ${i + 1} score" name="hole-${i}" type="number" min="1" max="30" step="1" inputmode="numeric" value="${scores[i] ?? ""}" ${locked ? "disabled" : ""}></label>`).join("")}</div><div class="score-actions"><p>Playing handicap ${entry.handicap}. Blank holes are unplayed.<br>Gross scores only; net strokes and Stableford use this round’s stroke indexes.</p><div class="button-row">${!locked ? '<button class="outline" type="submit" name="mode" value="draft">Save draft</button><button class="primary" type="submit" name="mode" value="submit">Submit card</button>' : ""}${c && (scorer() || assigned) && event().format !== "Match play" && c.status !== "Attested" ? button("Attest card", "attest", "outline") : ""}${c?.status === "Attested" && manager() ? button("Unlock card", "unlock", "outline") : ""}</div></div></form><div class="panel-foot">Another scorer must attest cards entered by a scorer. Organisers may attest or unlock with an audit record. Submitted cards remain editable until attested.</div></section>`;
 }
 function leaderboardView() {
   if (teamFormats.includes(event().format)) return teamLeaderboardView();
@@ -480,7 +557,7 @@ function reportsView() {
   )}</section>`;
 }
 function settingsView() {
-  return `${heading("Workspace settings", "Manage access to your organisations and secure your account.")}<section class="panel settings-section"><h2>${esc(org.name)}</h2><p>Your role: ${esc(org.role)} · Signed in as ${esc(me.email)}</p><div class="button-row">${org.role === "admin" ? button("Invite member", "invite") + button("Manage roles", "members", "outline") : ""}${button("New organisation", "new-org", "outline")}${button("Join organisation", "join", "outline")}${button("Change password", "password", "outline")}${button("Sign out", "logout", "outline")}</div></section>${
+  return `${heading("Workspace settings", "Manage access to your organisations and secure your account.")}<section class="panel settings-section"><h2>${esc(org.name)}</h2><p>Your role: ${esc(org.role)} · Signed in as ${esc(me.email)}</p><div class="button-row">${org.role === "admin" ? button("Invite member", "invite") + button("Manage roles", "members", "outline") : ""}${button("New organisation", "new-org", "outline")}${button("Join organisation", "join", "outline")}${button("Change password", "password", "outline")}${button(offlineEnabled(me.id) ? "Remove offline workspace" : "Enable offline workspace", "offline-workspace", "outline")}${button("Sign out", "logout", "outline")}</div></section>${
     manager()
       ? `<section class="panel"><div class="panel-head"><h2>Audit history</h2></div>${table(
           ["WHEN", "USER", "ACTION"],
@@ -495,13 +572,38 @@ function settingsView() {
       : ""
   }<section class="panel settings-section"><h2>Integration status</h2><p>${config.paymentProvider ? "Stripe checkout configured; paid status requires a signed webhook." : "Stripe checkout not configured."} ${config.mailProvider ? "Recovery email provider configured." : "Recovery email not configured."} SMS, official federation services and accounting sync are not connected. Federation records are organiser-provided until approved API access is supplied. Match play, shared team cards, countback, and local offline score queues are available. Provider-backed email and card checkout require secure configuration.</p></section>`;
 }
+function opsContext() {
+  return { s, me, org, eventId, roundId };
+}
+function opsHelpers() {
+  return {
+    heading,
+    button,
+    table,
+    esc,
+    time,
+    shortDate,
+    dialog,
+    input,
+    select,
+    textArea,
+    write,
+    api,
+    render,
+    toast,
+    downloadCSV,
+    today,
+    localTime,
+    iso,
+  };
+}
 function render() {
   if (!me || !s) return renderAuth();
   const names = Object.keys(nav).filter(
     (n) => manager() || org.role === "player" || !["Finance"].includes(n),
   );
   document.querySelector("#app").innerHTML =
-    `<aside class="sidebar"><a class="brand" href="/"> <span class="brand-symbol">A</span>ApexLinks<span class="brand-dot">.</span></a><label class="org-switch">Workspace<select id="org-picker">${orgs.map((o) => `<option value="${o.id}" ${o.id === org.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></label><div class="nav-label">WORKSPACE</div><nav>${names.map((n) => `<button class="nav-item ${page === n || (page === "Tournament" && n === "Tournaments") ? "selected" : ""}" data-page="${n}"><span>${nav[n]}</span>${n}</button>`).join("")}</nav><div class="sidebar-bottom"><div class="account"><span class="avatar">${initials(me.name)}</span><div><strong>${esc(me.name)}</strong><small>${esc(org.role)}</small></div></div></div></aside><div class="main-shell"><header><div class="breadcrumb">${esc(org.name)} <span>/</span><strong>${page}</strong></div><div class="top-tools"><label class="search"><span>⌕</span><input id="search" aria-label="Search" placeholder="Search tournaments or players…" value="${esc(query)}"></label>${button("Sign out", "logout", "text-button")}</div></header><main>${me && readQueue(me.id).length ? `<div class="warning-banner">${readQueue(me.id).length} scorecard draft(s) saved on this device, waiting to sync. ${button("Review queued scores", "score-queue", "outline")}</div>` : ""}${config.storage === "ephemeral" ? '<div class="warning-banner">Render storage is temporary. Your data can disappear on redeploy or restart. Attach a persistent disk before adding real data.</div>' : ""}${page === "Overview" ? overview() : page === "Tournaments" ? tournaments() : page === "Tournament" ? tournament() : page === "Players" ? playersView() : page === "Courses" ? coursesView() : page === "Bookings" ? bookingsView() : page === "Memberships" ? membershipsView() : page === "Finance" ? financeView() : page === "Reports" ? reportsView() : page === "Handicaps" ? handicapsView() : settingsView()}<footer><span>APEXLINKS · Golf, beautifully organised.</span><span>Server saved · ${esc(org.name)}</span></footer></main></div>`;
+    `<aside class="sidebar"><a class="brand" href="/"> <span class="brand-symbol">A</span>ApexLinks<span class="brand-dot">.</span></a><label class="org-switch">Workspace<select id="org-picker">${orgs.map((o) => `<option value="${o.id}" ${o.id === org.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></label><div class="nav-label">WORKSPACE</div><nav>${names.map((n) => `<button class="nav-item ${page === n || (page === "Tournament" && n === "Tournaments") ? "selected" : ""}" data-page="${n}"><span>${nav[n]}</span>${n}${n === "Inbox" && s.messages.filter((m) => !s.receipts.some((r) => r.messageId === m.id && r.userId === me.id)).length ? '<b class="nav-count">' + s.messages.filter((m) => !s.receipts.some((r) => r.messageId === m.id && r.userId === me.id)).length + "</b>" : ""}</button>`).join("")}</nav><div class="sidebar-bottom"><div class="account"><span class="avatar">${initials(me.name)}</span><div><strong>${esc(me.name)}</strong><small>${esc(org.role)}</small></div></div></div></aside><div class="main-shell"><header><div class="breadcrumb">${esc(org.name)} <span>/</span><strong>${page}</strong></div><div class="top-tools"><label class="search"><span>⌕</span><input id="search" aria-label="Search" placeholder="Search tournaments or players…" value="${esc(query)}"></label>${button("Sign out", "logout", "text-button")}</div></header><main>${offlineSession ? '<div class="warning-banner">Offline workspace — cached data may be out of date. Score changes queue on this device and must be synced after reconnecting.</div>' : ""}${me && readQueue(me.id).length ? `<div class="warning-banner">${readQueue(me.id).length} scorecard draft(s) saved on this device, waiting to sync. ${button("Review queued scores", "score-queue", "outline")}</div>` : ""}${config.storage === "ephemeral" ? '<div class="warning-banner">Render storage is temporary. Your data can disappear on redeploy or restart. Attach a persistent disk before adding real data.</div>' : ""}${page === "Overview" ? overview() : page === "Tournaments" ? tournaments() : page === "Tournament" ? tournament() : page === "Players" ? playersView() : page === "Courses" ? coursesView() : page === "Bookings" ? bookingsView() : page === "Memberships" ? membershipsView() : page === "Finance" ? financeView() : page === "Reports" ? reportsView() + reportsExtension(opsContext(), opsHelpers()) : page === "Operations" ? operationsView(opsContext(), opsHelpers()) : page === "Inbox" ? inboxView(opsContext(), opsHelpers()) : page === "Handicaps" ? handicapsView() : settingsView()}<footer><span>APEXLINKS · Golf, beautifully organised.</span><span>Server saved · ${esc(org.name)}</span></footer></main></div>`;
   bind();
 }
 function dialog(title, content, save, { wide = false, submit = "Save" } = {}) {
@@ -734,11 +836,13 @@ function iso(f, name) {
   return d.toISOString();
 }
 function matchesView() {
-  return `<section class="panel"><div class="panel-head"><div><h2>Knockout bracket</h2><p>Seeded singles net match play. First stage needs 2, 4, 8, 16, 32, or 64 players.</p></div>${roundPicker()}${manager() ? button("Generate next stage", "new-matches", "outline") : ""}</div>${table(
+  return `<section class="panel"><div class="panel-head"><div><h2>Knockout bracket</h2><p>Seeded singles net match play. 2–64 entrants; top-seed byes fill the bracket.</p></div>${roundPicker()}${manager() ? button("Generate next stage", "new-matches", "outline") : ""}</div>${table(
     ["STAGE", "MATCH", "PLAYER A", "PLAYER B", "RESULT", ""],
     s.matches
       .filter((m) => m.eventId === eventId)
       .map((m) => {
+        if (!m.playerA || !m.playerB)
+          return `<tr><td>${m.stage}</td><td>${m.slot}</td><td>${esc(player(m.winner)?.name)}</td><td>Bye</td><td>Advanced automatically</td><td></td></tr>`;
         const r = s.rounds.find((r) => r.id === m.roundId),
           a = s.cards.find(
             (c) => c.roundId === m.roundId && c.playerId === m.playerA,
@@ -759,7 +863,7 @@ function matchesView() {
             ea.handicap,
             eb.handicap,
           );
-        return `<tr><td>${m.stage}</td><td>${m.slot}</td><td>${esc(player(m.playerA)?.name)}</td><td>${esc(player(m.playerB)?.name)}</td><td>${esc(m.status === "Completed" ? `${player(m.winner)?.name} wins: ${m.result}` : result.label)}</td><td>${manager() ? button(m.status === "Completed" ? "Reopen" : "Finalise", "finalise-match", "text-button", `data-id="${m.id}"`) : ""}</td></tr>`;
+        return `<tr><td>${m.stage}</td><td>${m.slot}</td><td>${esc(player(m.playerA)?.name)}</td><td>${esc(player(m.playerB)?.name)}</td><td>${esc(m.status === "Completed" ? `${player(m.winner)?.name} wins: ${m.result}` : result.label)}</td><td>${manager() && m.status !== "Completed" ? button("Playoff hole", "ops-playoff", "text-button", `data-id="${m.id}"`) : ""}${manager() ? button(m.status === "Completed" ? "Reopen" : "Finalise", "finalise-match", "text-button", `data-id="${m.id}"`) : ""}</td></tr>`;
       })
       .join(""),
   )}<div class="panel-foot">Strokes are the difference in playing handicaps, allocated by stroke index. Tied matches need an organiser-recorded playoff decision. The bracket advances only after the prior stage is finalised.</div></section>`;
@@ -1007,6 +1111,15 @@ function bind() {
     (b) =>
       (b.onclick = action(async () => {
         const id = b.dataset.id;
+        if (
+          await operationsAction(
+            b.dataset.action,
+            id,
+            opsContext(),
+            opsHelpers(),
+          )
+        )
+          return;
         switch (b.dataset.action) {
           case "import-handicaps":
             dialog(
@@ -1282,9 +1395,53 @@ function bind() {
             ]);
             break;
 
+          case "offline-workspace":
+            if (offlineEnabled(me.id)) {
+              clearOffline();
+              render();
+              toast(
+                "Offline workspace removed. Queued drafts are retained for this account.",
+              );
+            } else if (
+              confirm(
+                "Store club data on this device for up to 12 hours? Use a trusted personal device. Passwords and session tokens are not stored.",
+              )
+            ) {
+              if (!("serviceWorker" in navigator))
+                throw Error(
+                  "Offline workspaces require a supported browser over HTTPS.",
+                );
+              enableOffline(me.id);
+              const cached = cacheWorkspace({
+                me,
+                orgs,
+                org,
+                s,
+                eventId,
+                roundId,
+                playerId,
+                config,
+              });
+              if (!cached) {
+                clearOffline(me.id);
+                throw Error(
+                  "Device storage is unavailable or full. Offline workspace was not enabled.",
+                );
+              }
+              render();
+              toast("Offline workspace enabled. Keep this device secure.");
+            }
+            break;
           case "logout":
             if (dirty && !confirm("Discard unsaved scores?")) return;
-            await api("auth/logout", "POST", {});
+            try {
+              await api("auth/logout", "POST", {});
+            } catch (err) {
+              if (err instanceof TypeError || !navigator.onLine)
+                localStorage.setItem("apexlinks.pendingLogout", "true");
+              else throw err;
+            }
+            clearOffline();
             me = null;
             s = null;
             csrf = "";
@@ -1812,8 +1969,19 @@ async function boot() {
   try {
     config = await api("config");
     const d = await api("auth/me");
+    if (localStorage.getItem("apexlinks.pendingLogout")) {
+      csrf = d.csrf || "";
+      if (d.user) await api("auth/logout", "POST", {});
+      localStorage.removeItem("apexlinks.pendingLogout");
+      me = null;
+      csrf = "";
+      return renderAuth();
+    }
     me = d.user;
-    if (!me) return renderAuth();
+    if (!me) {
+      clearOffline();
+      return renderAuth();
+    }
     csrf = d.csrf;
     orgs = d.organisations;
     await loadOrg(
@@ -1822,6 +1990,21 @@ async function boot() {
     );
     render();
   } catch (err) {
+    const cached = cachedWorkspace();
+    if (
+      !err.status &&
+      (err instanceof TypeError || !navigator.onLine) &&
+      cached &&
+      !localStorage.getItem("apexlinks.pendingLogout")
+    ) {
+      ({ me, orgs, org, s, eventId, roundId, playerId, config } = cached);
+      csrf = "";
+      offlineSession = true;
+      page = eventId ? "Tournament" : "Overview";
+      tab = "Scoring";
+      render();
+      return;
+    }
     document.querySelector("#app").innerHTML =
       `<div class="empty"><h1>Unable to connect</h1><p>${esc(err.message)}</p><button id="retry" class="primary">Try again</button></div>`;
     document.querySelector("#retry").onclick = boot;
@@ -1872,4 +2055,23 @@ async function publicBoard(code) {
   await update();
   setInterval(update, 10000);
 }
+if ("serviceWorker" in navigator)
+  navigator.serviceWorker
+    .register("/sw.js", { updateViaCache: "none" })
+    .catch(() => {});
+window.addEventListener("online", async () => {
+  if (!me) return;
+  try {
+    const auth = await api("auth/me");
+    if (auth.user?.id !== me.id) {
+      toast("Sign in again before syncing your drafts.");
+      return;
+    }
+    csrf = auth.csrf;
+    offlineSession = false;
+    if (!dirty) await refresh();
+    if (readQueue(me.id).length)
+      toast("Online again. Review queued scores to sync safely.");
+  } catch {}
+});
 boot();

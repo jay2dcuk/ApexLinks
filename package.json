@@ -1,6 +1,6 @@
 {
   "name": "apexlinks",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,8 @@
     "test:browser": "node scripts/browser-smoke.mjs",
     "seed:demo": "node scripts/seed-demo.mjs",
     "test:browser:advanced": "node scripts/browser-advanced.mjs",
-    "demo:disable": "node scripts/disable-demo.mjs"
+    "demo:disable": "node scripts/disable-demo.mjs",
+    "test:browser:operations": "node scripts/browser-operations.mjs"
   },
   "engines": {
     "node": ">=24"

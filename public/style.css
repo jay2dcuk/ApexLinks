@@ -1846,3 +1846,73 @@ dialog label:has(textarea) {
 .spectator .match-result {
   white-space: normal;
 }
+.ops-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+}
+.ops-panel {
+  margin-top: 24px;
+}
+.notice ul {
+  list-style: none;
+  padding: 0;
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 2;
+  color: #6d7b63;
+}
+.readiness {
+  float: right;
+  color: #64854b;
+  font-size: 16px;
+}
+.ops-grid .notice h3 {
+  font-size: 15px;
+}
+.report-columns {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+}
+.sidebar {
+  overflow-y: auto;
+}
+.notice .panel-head {
+  padding: 0 0 12px;
+}
+.ops-panel .table-wrap {
+  max-height: 500px;
+}
+.notice > small {
+  display: block;
+  margin-top: 14px;
+}
+@media (max-width: 850px) {
+  .ops-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 600px) {
+  .sidebar {
+    overflow-y: visible;
+  }
+  .ops-grid {
+    gap: 18px;
+  }
+  .report-columns {
+    grid-template-columns: 1fr;
+  }
+}
+.nav-count {
+  margin-left: auto;
+  background: #dbe7c9;
+  color: #36543b;
+  border-radius: 10px;
+  padding: 2px 6px;
+  font-size: 9px;
+}
+@media (max-width: 850px) {
+  .nav-count {
+    display: none;
+  }
+}
