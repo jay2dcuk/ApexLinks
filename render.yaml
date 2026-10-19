@@ -5,7 +5,9 @@ services:
     plan: free
     buildCommand: npm test
     startCommand: npm start
-    healthCheckPath: /
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
         value: 24.19.0
+      - key: NODE_ENV
+        value: production
