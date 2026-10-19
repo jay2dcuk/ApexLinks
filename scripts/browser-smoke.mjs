@@ -30,7 +30,9 @@ try {
   await p.screenshot({ path: "/tmp/apex-full-dashboard.png", fullPage: true });
   await p.getByRole("button", { name: "Open →", exact: true }).click();
   await p.getByRole("button", { name: "Field", exact: true }).click();
-  await p.getByRole("heading", { name: "Tournament field" }).waitFor();
+  await p
+    .getByRole("heading", { name: "Tournament field & waiting list" })
+    .waitFor();
   assert.equal(await p.locator("tbody tr").count(), 4);
   await p.getByRole("button", { name: "Tee sheet", exact: true }).click();
   await p.getByRole("button", { name: "Generate pairings" }).click();

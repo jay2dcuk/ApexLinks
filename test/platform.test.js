@@ -278,7 +278,8 @@ test("multi-user club platform lifecycle and access controls", async (t) => {
       await golfer.request(route("courses"), "POST", {}, 403);
       await golfer.request(route("members"), "GET", undefined, 403);
       const state = (await golfer.request(route("state"))).state;
-      assert.equal(state.invoices.length, 0);
+      assert.equal(state.invoices.length, 1);
+      assert.equal(state.invoices[0].playerId, player.id);
       assert.equal(
         state.players.find((p) => p.id === player.id).email,
         "golfer@example.com",
@@ -294,6 +295,27 @@ test("multi-user club platform lifecycle and access controls", async (t) => {
         role: "scorer",
       });
       await scorer.request("join", "POST", { code: i.code });
+    },
+  );
+  await t.test(
+    "players cannot override handicaps during self-registration",
+    async () => {
+      const e = await admin.request(route("events"), "POST", {
+        name: "Self registration",
+        date: "2027-07-01",
+        format: "Stableford",
+        capacity: 2,
+      });
+      await admin.request(route("events/" + e.id), "PATCH", {
+        ...e,
+        status: "Open",
+      });
+      const entry = await golfer.request(route("entries"), "POST", {
+        eventId: e.id,
+        playerId: player.id,
+        handicap: -10,
+      });
+      assert.equal(entry.handicap, player.handicap);
     },
   );
   await t.test(

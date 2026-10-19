@@ -1,3 +1,10 @@
+import {
+  formats,
+  teamFormats,
+  matchResult,
+  teamStandings,
+} from "./competition.js";
+import { readQueue, queueScore, removeQueued } from "./offline.js";
 import { defaultPars, defaultIndexes, cardTotals } from "./scoring.js";
 const esc = (s) =>
   String(s ?? "").replace(
@@ -42,6 +49,7 @@ let me = null,
   tab = "Overview",
   roundId = "",
   playerId = "",
+  selectedTeam = "",
   query = "",
   rows = [],
   teams = [],
@@ -56,6 +64,7 @@ const nav = {
   Memberships: "◎",
   Finance: "£",
   Reports: "↗",
+  Handicaps: "⌁",
   Settings: "⚙",
 };
 const manager = () => ["admin", "manager"].includes(org?.role),
@@ -170,7 +179,20 @@ function table(headers, body) {
 }
 function renderAuth() {
   document.querySelector("#app").innerHTML =
-    `<div class="auth-shell"><section class="auth-brand"><a class="brand" href="/">ApexLinks.</a><h1>Your game.<br>Your people.<br>Your platform.</h1><p>Tournaments, tee times, and a better club experience—all in one place.</p><small>Original golf management software</small></section><section class="auth-form"><div class="eyebrow">WELCOME TO APEXLinks</div><h2>${authMode === "register" ? "Start your club workspace" : "Welcome back"}</h2><p>${authMode === "register" ? "Create an account and your first organisation." : "Sign in to manage your golf."}</p><form id="auth-form">${authMode === "register" ? input("Your name", "name", "", "text", 'required maxlength="100" autocomplete="name"') + input("Organisation / society name", "organisation", "", "text", 'required maxlength="120"') : ""}${input("Email address", "email", "", "email", 'required autocomplete="email"')}${input("Password", "password", "", "password", `required minlength="${authMode === "register" ? 12 : 1}" maxlength="128" autocomplete="${authMode === "register" ? "new-password" : "current-password"}"`)}<p class="form-error" role="alert"></p><button class="primary" type="submit">${authMode === "register" ? "Create workspace" : "Sign in"} →</button></form><button class="text-button" id="auth-switch">${authMode === "register" ? "Already have an account? Sign in" : "New here? Create an account"}</button><p class="auth-note">Invited to a club? Create an account with your invited email, then use Join organisation in Settings. Password recovery email is not configured; keep your password safe.</p></section></div>`;
+    `<div class="auth-shell"><section class="auth-brand"><a class="brand" href="/">ApexLinks.</a><h1>Your game.<br>Your people.<br>Your platform.</h1><p>Tournaments, tee times, and a better club experience—all in one place.</p><small>Original golf management software</small></section><section class="auth-form"><div class="eyebrow">WELCOME TO APEXLinks</div><h2>${authMode === "register" ? "Start your club workspace" : "Welcome back"}</h2><p>${authMode === "register" ? "Create an account and your first organisation." : "Sign in to manage your golf."}</p><form id="auth-form">${authMode === "register" ? input("Your name", "name", "", "text", 'required maxlength="100" autocomplete="name"') + input("Organisation / society name", "organisation", "", "text", 'required maxlength="120"') : ""}${input("Email address", "email", "", "email", 'required autocomplete="email"')}${input("Password", "password", "", "password", `required minlength="${authMode === "register" ? 12 : 1}" maxlength="128" autocomplete="${authMode === "register" ? "new-password" : "current-password"}"`)}<p class="form-error" role="alert"></p><button class="primary" type="submit">${authMode === "register" ? "Create workspace" : "Sign in"} →</button></form><button class="text-button" id="auth-switch">${authMode === "register" ? "Already have an account? Sign in" : "New here? Create an account"}</button><p class="auth-note">Invited to a club? Create an account with your invited email, then use Join organisation in Settings. ${config.mailProvider ? "Recovery email is enabled." : "Recovery email is not configured; keep your password safe."}</p></section></div>`;
+  const recover = document.createElement("button");
+  recover.className = "text-button";
+  recover.textContent = "Forgot password?";
+  document.querySelector(".auth-form").append(recover);
+  recover.onclick = () =>
+    dialog(
+      "Reset your password",
+      input("Account email", "email", "", "email", "required"),
+      async (f) => {
+        const d = await api("auth/recover", "POST", Object.fromEntries(f));
+        toast(d.message);
+      },
+    );
   document.querySelector("#auth-switch").onclick = () => {
     authMode = authMode === "login" ? "register" : "login";
     renderAuth();
@@ -251,19 +273,21 @@ function tournament() {
     "Tee sheet",
     "Scoring",
     "Leaderboard",
+    ...(e.format === "Match play" ? ["Matches"] : []),
   ];
-  return `${heading(e.name, `${shortDate(e.date)} · ${e.format} · ${e.status}`, manager() ? button("Edit tournament", "edit-event", "outline") + button("Share leaderboard", "share", "outline") : "")}<div class="filters">${tabs.map((t) => `<button class="${tab === t ? "active" : ""}" data-tab="${t}">${t}</button>`).join("")}</div>${tab === "Overview" ? `<section class="panel detail-summary"><div><div class="eyebrow">ABOUT THE EVENT</div><h2>${esc(e.name)}</h2><p class="multiline">${esc(e.description || "No description added.")}</p></div><div class="summary-numbers"><div><strong>${field().length}/${e.capacity}</strong><span>Registered players</span></div><div><strong>${s.rounds.filter((r) => r.eventId === e.id).length}</strong><span>Rounds</span></div><div><strong>${money(e.fee)}</strong><span>Entry fee · GBP</span></div></div></section>` : tab === "Field" ? fieldView() : tab === "Rounds" ? roundsView() : tab === "Tee sheet" ? teeView() : tab === "Scoring" ? scoringView() : leaderboardView()}`;
+  return `${heading(e.name, `${shortDate(e.date)} · ${e.format} · ${e.status}`, manager() ? button("Edit tournament", "edit-event", "outline") + button("Share leaderboard", "share", "outline") : "")}<div class="filters">${tabs.map((t) => `<button class="${tab === t ? "active" : ""}" data-tab="${t}">${t}</button>`).join("")}</div>${tab === "Overview" ? `<section class="panel detail-summary"><div><div class="eyebrow">ABOUT THE EVENT</div><h2>${esc(e.name)}</h2><p class="multiline">${esc(e.description || "No description added.")}</p></div><div class="summary-numbers"><div><strong>${field().length}/${e.capacity}</strong><span>Registered players</span></div><div><strong>${s.rounds.filter((r) => r.eventId === e.id).length}</strong><span>Rounds</span></div><div><strong>${money(e.fee)}</strong><span>Entry fee · GBP</span></div></div></section>` : tab === "Field" ? fieldView() : tab === "Rounds" ? roundsView() : tab === "Tee sheet" ? teeView() : tab === "Scoring" ? scoringView() : tab === "Matches" ? matchesView() : leaderboardView()}`;
 }
 function fieldView() {
-  return `<section class="panel"><div class="panel-head"><h2>Tournament field</h2>${manager() || org.role === "player" ? button("＋ Register player", "new-entry", "outline") : ""}</div>${table(
-    ["PLAYER", "HCP", "DIVISION", "TEAM", ""],
-    field()
+  return `<section class="panel"><div class="panel-head"><h2>Tournament field & waiting list</h2>${manager() || org.role === "player" ? button("＋ Register player", "new-entry", "outline") : ""}</div>${table(
+    ["PLAYER", "HCP", "DIVISION", "TEAM", "STATUS", ""],
+    s.entries
+      .filter((e) => e.eventId === eventId)
       .map(
         (e) =>
-          `<tr><td>${esc(player(e.playerId)?.name)}</td><td>${e.handicap}</td><td>${esc(e.division)}</td><td>${esc(e.team || "—")}</td><td>${manager() ? button("Edit", "edit-entry", "text-button", `data-id="${e.id}"`) + button("Remove", "remove-entry", "text-button", `data-id="${e.id}"`) : ""}</td></tr>`,
+          `<tr><td>${esc(player(e.playerId)?.name)}</td><td>${e.handicap}</td><td>${esc(e.division)}</td><td>${esc(e.team || "—")}</td><td>${esc(e.status)}${e.reason ? `<small class="decision-reason">${esc(e.reason)}</small>` : ""}</td><td>${manager() ? button("Edit", "edit-entry", "text-button", `data-id="${e.id}"`) + button("Status", "entry-status", "text-button", `data-id="${e.id}"`) + button("Remove", "remove-entry", "text-button", `data-id="${e.id}"`) : ""}</td></tr>`,
       )
       .join(""),
-  )}</section>`;
+  )}<div class="panel-foot">Waiting-list players are promoted in entry order when a registered player withdraws before play. Fees are invoiced only on admission. Removing an entry does not refund a payment.</div></section>`;
 }
 function roundsView() {
   return `<section class="panel"><div class="panel-head"><h2>Competition rounds</h2>${manager() ? button("＋ Add round", "new-round", "outline") : ""}</div>${table(
@@ -296,11 +320,27 @@ function teeView() {
   )}</section>`;
 }
 function scoringView() {
+  if (org.role === "viewer")
+    return empty(
+      "Read-only account",
+      "<p>View the leaderboard and tee sheet; your role cannot enter scores.</p>",
+    );
+  if (teamFormats.includes(event().format)) return teamScoringView();
   const r = round();
   if (!r) return roundPicker();
-  const entries = field().filter(
-    (e) => org.role !== "player" || player(e.playerId)?.email === me.email,
-  );
+  const entries = field()
+    .filter(
+      (e) =>
+        event().format !== "Match play" ||
+        s.matches.some(
+          (m) =>
+            m.roundId === roundId &&
+            [m.playerA, m.playerB].includes(e.playerId),
+        ),
+    )
+    .filter(
+      (e) => org.role !== "player" || player(e.playerId)?.email === me.email,
+    );
   if (!entries.length)
     return empty(
       "No eligible players.",
@@ -317,11 +357,13 @@ function scoringView() {
     r.status !== "Open" ||
     c?.status === "Attested" ||
     !["Open", "Live"].includes(event().status);
-  return `<section class="panel score-panel"><div class="score-top">${roundPicker()}<label class="inline-label">Player<select id="player-picker">${entries.map((e) => `<option value="${e.playerId}" ${e.playerId === playerId ? "selected" : ""}>${esc(player(e.playerId)?.name)} · HCP ${e.handicap}</option>`).join("")}</select></label></div><div class="score-status"><strong>${esc(c?.status || "Not started")}</strong><span>Gross ${t.thru ? t.gross : "—"} · Net ${t.thru ? t.net : "—"} · ${t.points} points · ${t.thru}/18 holes</span></div><form id="score-form" data-version="${c?.version || 0}"><div class="scorecard">${r.pars.map((par, i) => `<label class="hole"><span>HOLE ${i + 1}</span><small>Par ${par} · SI ${r.indexes[i]}</small><input aria-label="Hole ${i + 1} score" name="hole-${i}" type="number" min="1" max="30" step="1" inputmode="numeric" value="${scores[i] ?? ""}" ${locked ? "disabled" : ""}></label>`).join("")}</div><div class="score-actions"><p>Playing handicap ${entry.handicap}. Blank holes are unplayed.<br>Gross scores only; net strokes and Stableford use this round’s stroke indexes.</p><div class="button-row">${!locked ? '<button class="outline" type="submit" name="mode" value="draft">Save draft</button><button class="primary" type="submit" name="mode" value="submit">Submit card</button>' : ""}${c && scorer() && c.status !== "Attested" ? button("Attest card", "attest", "outline") : ""}${c?.status === "Attested" && manager() ? button("Unlock card", "unlock", "outline") : ""}</div></div></form><div class="panel-foot">Another scorer must attest cards entered by a scorer. Organisers may attest or unlock with an audit record. Submitted cards remain editable until attested.</div></section>`;
+  return `<section class="panel score-panel"><div class="score-top">${roundPicker()}<label class="inline-label">Player<select id="player-picker">${entries.map((e) => `<option value="${e.playerId}" ${e.playerId === playerId ? "selected" : ""}>${esc(player(e.playerId)?.name)} · HCP ${e.handicap}</option>`).join("")}</select></label></div><div class="score-status"><strong>${esc(c?.status || "Not started")}</strong><span>Gross ${t.thru ? t.gross : "—"} · Net ${t.thru ? t.net : "—"} · ${t.points} points · ${t.thru}/18 holes</span></div><form id="score-form" data-version="${c?.version || 0}"><div class="scorecard">${r.pars.map((par, i) => `<label class="hole"><span>HOLE ${i + 1}</span><small>Par ${par} · SI ${r.indexes[i]}</small><input aria-label="Hole ${i + 1} score" name="hole-${i}" type="number" min="1" max="30" step="1" inputmode="numeric" value="${scores[i] ?? ""}" ${locked ? "disabled" : ""}></label>`).join("")}</div><div class="score-actions"><p>Playing handicap ${entry.handicap}. Blank holes are unplayed.<br>Gross scores only; net strokes and Stableford use this round’s stroke indexes.</p><div class="button-row">${!locked ? '<button class="outline" type="submit" name="mode" value="draft">Save draft</button><button class="primary" type="submit" name="mode" value="submit">Submit card</button>' : ""}${c && scorer() && event().format !== "Match play" && c.status !== "Attested" ? button("Attest card", "attest", "outline") : ""}${c?.status === "Attested" && manager() ? button("Unlock card", "unlock", "outline") : ""}</div></div></form><div class="panel-foot">Another scorer must attest cards entered by a scorer. Organisers may attest or unlock with an audit record. Submitted cards remain editable until attested.</div></section>`;
 }
 function leaderboardView() {
+  if (teamFormats.includes(event().format)) return teamLeaderboardView();
+  if (event().format === "Match play") return matchesView();
   const divisions = [...new Set(rows.map((r) => r.division))];
-  return `<section class="panel"><div class="panel-head"><div><h2>${esc(event().format)} standings</h2><p>Refreshes every 10 seconds. Ties share a position; no countback is applied.</p></div>${button("Export CSV", "export-scores", "outline")}</div>${
+  return `<section class="panel"><div class="panel-head"><div><h2>${esc(event().format)} standings</h2><p>Refreshes every 10 seconds. ${event().tiebreak === "Countback" ? "Countback: last 9, 6, 3, 1 holes of the final completed round." : "Ties share a position."}</p></div>${button("Export CSV", "export-scores", "outline")}</div>${
     divisions
       .map(
         (d) =>
@@ -346,11 +388,8 @@ function leaderboardView() {
                     : event().format === "Net stroke"
                       ? "net"
                       : "gross";
-                const rank =
-                  a.findIndex(
-                    (x) => x[metric] === r[metric] && x.thru === r.thru,
-                  ) + 1;
-                return `<tr><td>${r.thru ? rank : "—"}</td><td>${esc(r.name)}</td><td>${r.handicap}</td><td>${r.thru}</td><td>${r.thru ? r.gross : "—"}</td><td>${r.thru ? r.net : "—"}</td><td>${r.thru ? label(r.toPar) : "—"}</td><td>${r.points}</td><td>${r.attested}/${s.rounds.filter((x) => x.eventId === eventId).length}</td></tr>`;
+                const rank = r.position;
+                return `<tr><td>${r.position ?? (r.status !== "Registered" ? esc(r.status) : "—")}</td><td>${esc(r.name)}</td><td>${r.handicap}</td><td>${r.thru}</td><td>${r.thru ? r.gross : "—"}</td><td>${r.thru ? r.net : "—"}</td><td>${r.thru ? label(r.toPar) : "—"}</td><td>${r.points}</td><td>${r.attested}/${s.rounds.filter((x) => x.eventId === eventId).length}</td></tr>`;
               })
               .join(""),
           )}`,
@@ -376,7 +415,7 @@ function coursesView() {
   return `${heading("Courses & tees", "Real course pars and stroke indexes power every scorecard.", manager() ? button("＋ Add course", "new-course") : "")}${s.courses.map((c) => `<section class="panel course-panel"><div class="panel-head"><div><h2>${esc(c.name)} · ${esc(c.tee)}</h2><p>Par ${c.pars.reduce((a, b) => a + b, 0)} · Rating ${c.rating ?? "—"} · Slope ${c.slope ?? "—"}</p></div>${manager() ? button("Edit course", "edit-course", "outline", `data-id="${c.id}"`) : ""}</div>${table(["", "", ...c.pars.map((_, i) => i + 1)], `<tr><td colspan="2">Par</td>${c.pars.map((p) => `<td>${p}</td>`).join("")}</tr><tr><td colspan="2">Stroke index</td>${c.indexes.map((p) => `<td>${p}</td>`).join("")}</tr>`)}</section>`).join("") || empty("Add your first course.")}`;
 }
 function bookingsView() {
-  return `${heading("Tee bookings", "Book a tee slot for up to four players. Times are shown in your browser timezone.", manager() || org.role === "player" ? button("＋ Book tee time", "new-booking") : "")}<section class="panel">${table(
+  return `${heading("Tee bookings", "Book a tee slot for up to four players. Times are shown in your browser timezone.", (manager() || org.role === "player" ? button("＋ Book tee time", "new-booking") : "") + (manager() ? button("Booking rules", "booking-rules", "outline") : ""))}<section class="panel">${table(
     ["TEE TIME", "COURSE", "PLAYERS", "STATUS", ""],
     s.bookings
       .filter((b) =>
@@ -393,17 +432,20 @@ function bookingsView() {
   )}</section>`;
 }
 function membershipsView() {
-  return `${heading("Memberships", "Annual plans, membership dates, and invoices.", manager() ? button("＋ Create plan", "new-plan") + button("Assign membership", "new-subscription", "outline") : "")}<div class="plan-grid">${s.plans.map((p) => `<article class="panel plan"><h2>${esc(p.name)}</h2><strong>${money(p.amount)}</strong><p>Annual plan · GBP</p></article>`).join("")}</div>${manager() ? `<section class="panel">${table(["PLAYER", "PLAN", "START", "END", "STATUS", ""], s.subscriptions.map((m) => `<tr><td>${esc(player(m.playerId)?.name)}</td><td>${esc(s.plans.find((p) => p.id === m.planId)?.name)}</td><td>${shortDate(m.start)}</td><td>${shortDate(m.end)}</td><td>${m.status === "Active" && m.end < today() ? "Expired" : m.status}</td><td>${m.status === "Active" ? button("Cancel", "cancel-subscription", "text-button", `data-id="${m.id}"`) : ""}</td></tr>`).join(""))}</section>` : "<p>Contact your club organiser for your membership record.</p>"}`;
+  return `${heading("Memberships", "Annual plans, membership dates, and invoices.", manager() ? button("＋ Create plan", "new-plan") + button("Assign membership", "new-subscription", "outline") : "")}<div class="plan-grid">${s.plans.map((p) => `<article class="panel plan"><h2>${esc(p.name)}</h2><strong>${money(p.amount)}</strong><p>Annual plan · GBP</p></article>`).join("")}</div>${manager() || org.role === "player" ? `<section class="panel">${table(["PLAYER", "PLAN", "START", "END", "STATUS", ""], s.subscriptions.map((m) => `<tr><td>${esc(player(m.playerId)?.name)}</td><td>${esc(s.plans.find((p) => p.id === m.planId)?.name)}</td><td>${shortDate(m.start)}</td><td>${shortDate(m.end)}</td><td>${m.status === "Active" && m.end < today() ? "Expired" : m.status}</td><td>${m.status === "Active" && manager() ? button("Cancel", "cancel-subscription", "text-button", `data-id="${m.id}"`) : ""}</td></tr>`).join(""))}</section>` : "<p>Contact your club organiser for your membership record.</p>"}`;
 }
 function financeView() {
-  if (!manager()) return empty("Finance is available to organisers.");
+  if (!manager() && org.role !== "player")
+    return empty(
+      "Finance is available to organisers and players with invoices.",
+    );
   const paid = s.invoices
       .filter((i) => i.status === "Paid")
       .reduce((n, i) => n + i.amount, 0),
     unpaid = s.invoices
       .filter((i) => i.status === "Unpaid")
       .reduce((n, i) => n + i.amount, 0);
-  return `${heading("Finance", "Track entry and membership invoices. Record payments collected outside ApexLinks.")}<div class="info-banner">Online card payments are not connected. “Record payment” records an external payment; it does not charge a card or transfer money.</div><section class="stats"><article><span>Recorded paid</span><strong>${money(paid)}</strong></article><article><span>Outstanding</span><strong>${money(unpaid)}</strong></article></section><section class="panel">${table(["PLAYER", "DESCRIPTION", "AMOUNT", "STATUS", "REFERENCE", ""], s.invoices.map((i) => `<tr><td>${esc(player(i.playerId)?.name)}</td><td>${esc(i.description)}</td><td>${money(i.amount)}</td><td>${i.status}</td><td>${esc(i.reference || "—")}</td><td>${i.status === "Unpaid" ? button("Record payment", "pay-invoice", "text-button", `data-id="${i.id}"`) + button("Void", "void-invoice", "text-button", `data-id="${i.id}"`) : ""}</td></tr>`).join(""))}</section>`;
+  return `${heading("Finance", "Track entry and membership invoices. Record payments collected outside ApexLinks.")}<div class="info-banner">${config.paymentProvider ? "Pay online opens Stripe Checkout; an invoice is marked paid only after a verified webhook." : "Online payments are not configured."} “Record payment” records a payment already received outside this app.</div><section class="stats"><article><span>Recorded paid</span><strong>${money(paid)}</strong></article><article><span>Outstanding</span><strong>${money(unpaid)}</strong></article></section><section class="panel">${table(["PLAYER", "DESCRIPTION", "AMOUNT", "STATUS", "REFERENCE", ""], s.invoices.map((i) => `<tr><td>${esc(player(i.playerId)?.name)}</td><td>${esc(i.description)}</td><td>${money(i.amount)}</td><td>${i.status}</td><td>${esc(i.reference || "—")}</td><td>${i.status === "Unpaid" ? (manager() ? button("Record payment", "pay-invoice", "text-button", `data-id="${i.id}"`) + button("Void", "void-invoice", "text-button", `data-id="${i.id}"`) : "") + (config.paymentProvider ? button("Pay online", "checkout", "text-button", `data-id="${i.id}"`) + button("Check payment status", "checkout-status", "text-button", `data-id="${i.id}"`) : "") : ""}</td></tr>`).join(""))}</section>`;
 }
 function reportsView() {
   return `${heading("Club insights", "Participation and scoring statistics from your organisation.", manager() ? button("Export records", "export-all", "outline") : "")}<section class="stats">${[
@@ -451,15 +493,15 @@ function settingsView() {
             .join(""),
         )}</section>`
       : ""
-  }<section class="panel settings-section"><h2>Integration status</h2><p>Online card payments, email/SMS delivery, official handicap services, and accounting integrations are not connected. Invitations use a securely generated code that you share yourself. Match play, scramble formats, offline scoring, and automatic countback are not implemented.</p></section>`;
+  }<section class="panel settings-section"><h2>Integration status</h2><p>${config.paymentProvider ? "Stripe checkout configured; paid status requires a signed webhook." : "Stripe checkout not configured."} ${config.mailProvider ? "Recovery email provider configured." : "Recovery email not configured."} SMS, official federation services and accounting sync are not connected. Federation records are organiser-provided until approved API access is supplied. Match play, shared team cards, countback, and local offline score queues are available. Provider-backed email and card checkout require secure configuration.</p></section>`;
 }
 function render() {
   if (!me || !s) return renderAuth();
   const names = Object.keys(nav).filter(
-    (n) => manager() || !["Finance"].includes(n),
+    (n) => manager() || org.role === "player" || !["Finance"].includes(n),
   );
   document.querySelector("#app").innerHTML =
-    `<aside class="sidebar"><a class="brand" href="/"> <span class="brand-symbol">A</span>ApexLinks<span class="brand-dot">.</span></a><label class="org-switch">Workspace<select id="org-picker">${orgs.map((o) => `<option value="${o.id}" ${o.id === org.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></label><div class="nav-label">WORKSPACE</div><nav>${names.map((n) => `<button class="nav-item ${page === n || (page === "Tournament" && n === "Tournaments") ? "selected" : ""}" data-page="${n}"><span>${nav[n]}</span>${n}</button>`).join("")}</nav><div class="sidebar-bottom"><div class="account"><span class="avatar">${initials(me.name)}</span><div><strong>${esc(me.name)}</strong><small>${esc(org.role)}</small></div></div></div></aside><div class="main-shell"><header><div class="breadcrumb">${esc(org.name)} <span>/</span><strong>${page}</strong></div><div class="top-tools"><label class="search"><span>⌕</span><input id="search" aria-label="Search" placeholder="Search tournaments or players…" value="${esc(query)}"></label>${button("Sign out", "logout", "text-button")}</div></header><main>${config.storage === "ephemeral" ? '<div class="warning-banner">Render storage is temporary. Your data can disappear on redeploy or restart. Attach a persistent disk before adding real data.</div>' : ""}${page === "Overview" ? overview() : page === "Tournaments" ? tournaments() : page === "Tournament" ? tournament() : page === "Players" ? playersView() : page === "Courses" ? coursesView() : page === "Bookings" ? bookingsView() : page === "Memberships" ? membershipsView() : page === "Finance" ? financeView() : page === "Reports" ? reportsView() : settingsView()}<footer><span>APEXLINKS · Golf, beautifully organised.</span><span>Server saved · ${esc(org.name)}</span></footer></main></div>`;
+    `<aside class="sidebar"><a class="brand" href="/"> <span class="brand-symbol">A</span>ApexLinks<span class="brand-dot">.</span></a><label class="org-switch">Workspace<select id="org-picker">${orgs.map((o) => `<option value="${o.id}" ${o.id === org.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></label><div class="nav-label">WORKSPACE</div><nav>${names.map((n) => `<button class="nav-item ${page === n || (page === "Tournament" && n === "Tournaments") ? "selected" : ""}" data-page="${n}"><span>${nav[n]}</span>${n}</button>`).join("")}</nav><div class="sidebar-bottom"><div class="account"><span class="avatar">${initials(me.name)}</span><div><strong>${esc(me.name)}</strong><small>${esc(org.role)}</small></div></div></div></aside><div class="main-shell"><header><div class="breadcrumb">${esc(org.name)} <span>/</span><strong>${page}</strong></div><div class="top-tools"><label class="search"><span>⌕</span><input id="search" aria-label="Search" placeholder="Search tournaments or players…" value="${esc(query)}"></label>${button("Sign out", "logout", "text-button")}</div></header><main>${me && readQueue(me.id).length ? `<div class="warning-banner">${readQueue(me.id).length} scorecard draft(s) saved on this device, waiting to sync. ${button("Review queued scores", "score-queue", "outline")}</div>` : ""}${config.storage === "ephemeral" ? '<div class="warning-banner">Render storage is temporary. Your data can disappear on redeploy or restart. Attach a persistent disk before adding real data.</div>' : ""}${page === "Overview" ? overview() : page === "Tournaments" ? tournaments() : page === "Tournament" ? tournament() : page === "Players" ? playersView() : page === "Courses" ? coursesView() : page === "Bookings" ? bookingsView() : page === "Memberships" ? membershipsView() : page === "Finance" ? financeView() : page === "Reports" ? reportsView() : page === "Handicaps" ? handicapsView() : settingsView()}<footer><span>APEXLINKS · Golf, beautifully organised.</span><span>Server saved · ${esc(org.name)}</span></footer></main></div>`;
   bind();
 }
 function dialog(title, content, save, { wide = false, submit = "Save" } = {}) {
@@ -504,12 +546,7 @@ function eventDialog(e) {
       'required maxlength="120"',
     ) +
       input("Date", "date", e?.date || today(), "date", "required") +
-      select(
-        "Format",
-        "format",
-        ["Stroke play", "Net stroke", "Stableford"],
-        e?.format || "Stableford",
-      ) +
+      select("Format", "format", formats, e?.format || "Stableford") +
       input(
         "Player capacity",
         "capacity",
@@ -532,6 +569,12 @@ function eventDialog(e) {
             e.status,
           )
         : "") +
+      select(
+        "Tiebreak",
+        "tiebreak",
+        ["Shared", "Countback"],
+        e?.tiebreak || "Shared",
+      ) +
       textArea("Description", "description", e?.description),
     async (f) => {
       const b = {
@@ -638,6 +681,17 @@ function entryDialog(e) {
   dialog(
     e ? "Edit entry" : "Register player",
     (!e ? select("Player", "playerId", options, options[0]?.[0]) : "") +
+      (!e
+        ? select(
+            "If the event is full",
+            "waitlist",
+            [
+              ["yes", "Join waiting list"],
+              ["no", "Reject registration"],
+            ],
+            "yes",
+          )
+        : "") +
       (manager()
         ? input(
             "Playing handicap (blank uses player handicap)",
@@ -656,7 +710,11 @@ function entryDialog(e) {
           input("Team (optional)", "team", e?.team || "")
         : "<p>Entry fees are invoiced by the club. Registration does not charge a card.</p>"),
     async (f) => {
-      const b = { ...Object.fromEntries(f), eventId };
+      const b = {
+        ...Object.fromEntries(f),
+        eventId,
+        waitlist: f.get("waitlist") === "yes",
+      };
       if (f.get("handicap") !== null && f.get("handicap") !== "")
         b.handicap = number(f, "handicap");
       else delete b.handicap;
@@ -675,6 +733,141 @@ function iso(f, name) {
     throw Error("Enter a valid date and time.");
   return d.toISOString();
 }
+function matchesView() {
+  return `<section class="panel"><div class="panel-head"><div><h2>Knockout bracket</h2><p>Seeded singles net match play. First stage needs 2, 4, 8, 16, 32, or 64 players.</p></div>${roundPicker()}${manager() ? button("Generate next stage", "new-matches", "outline") : ""}</div>${table(
+    ["STAGE", "MATCH", "PLAYER A", "PLAYER B", "RESULT", ""],
+    s.matches
+      .filter((m) => m.eventId === eventId)
+      .map((m) => {
+        const r = s.rounds.find((r) => r.id === m.roundId),
+          a = s.cards.find(
+            (c) => c.roundId === m.roundId && c.playerId === m.playerA,
+          ),
+          b = s.cards.find(
+            (c) => c.roundId === m.roundId && c.playerId === m.playerB,
+          ),
+          ea = s.entries.find(
+            (e) => e.eventId === eventId && e.playerId === m.playerA,
+          ),
+          eb = s.entries.find(
+            (e) => e.eventId === eventId && e.playerId === m.playerB,
+          ),
+          result = matchResult(
+            a?.scores || [],
+            b?.scores || [],
+            r,
+            ea.handicap,
+            eb.handicap,
+          );
+        return `<tr><td>${m.stage}</td><td>${m.slot}</td><td>${esc(player(m.playerA)?.name)}</td><td>${esc(player(m.playerB)?.name)}</td><td>${esc(m.status === "Completed" ? `${player(m.winner)?.name} wins: ${m.result}` : result.label)}</td><td>${manager() ? button(m.status === "Completed" ? "Reopen" : "Finalise", "finalise-match", "text-button", `data-id="${m.id}"`) : ""}</td></tr>`;
+      })
+      .join(""),
+  )}<div class="panel-foot">Strokes are the difference in playing handicaps, allocated by stroke index. Tied matches need an organiser-recorded playoff decision. The bracket advances only after the prior stage is finalised.</div></section>`;
+}
+function teamScoringView() {
+  const r = round();
+  if (!r) return roundPicker();
+  const names = [
+    ...new Set(
+      field()
+        .filter(
+          (e) =>
+            e.team &&
+            (org.role !== "player" || player(e.playerId)?.email === me.email),
+        )
+        .map((e) => e.team),
+    ),
+  ];
+  if (!names.length) return empty("Assign players to teams first.");
+  if (!names.includes(selectedTeam)) selectedTeam = names[0];
+  const c = s.teamCards.find(
+      (c) => c.roundId === r.id && c.team === selectedTeam,
+    ),
+    scores = c?.scores || Array(18).fill(null),
+    locked =
+      r.status !== "Open" ||
+      c?.status === "Attested" ||
+      !["Open", "Live"].includes(event().status);
+  if (!c && !manager())
+    return `<section class="panel score-panel">${roundPicker()}<h2>Team card not initialised</h2><p>An organiser must enter and save the team playing handicap first.</p></section>`;
+  return `<section class="panel score-panel"><div class="score-top">${roundPicker()}<label class="inline-label">Team<select id="team-picker">${names.map((n) => `<option ${n === selectedTeam ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label></div><h2>${esc(event().format)} — one shared card per team</h2><p>Enter the team's actual gross score on each hole. The team playing handicap is set explicitly by the organiser; it is not an automatic federation allowance.</p><div class="score-status"><strong>${esc(c?.status || "Not started")}</strong></div><form id="score-form" data-version="${c?.version || 0}">${input("Team playing handicap", "teamHandicap", c?.handicap ?? 0, "number", `min="-10" max="54" step="1" ${c ? "readonly" : ""} required`)}<div class="scorecard">${r.pars.map((par, i) => `<label class="hole"><span>HOLE ${i + 1}</span><small>Par ${par} · SI ${r.indexes[i]}</small><input aria-label="Hole ${i + 1} score" name="hole-${i}" type="number" min="1" max="30" step="1" value="${scores[i] ?? ""}" ${locked ? "disabled" : ""}></label>`).join("")}</div><div class="button-row">${!locked ? '<button class="outline" type="submit" value="draft">Save draft</button><button class="primary" type="submit" value="submit">Submit card</button>' : ""}${c && scorer() && c.status !== "Attested" ? button("Attest card", "attest", "outline") : ""}${c?.status === "Attested" && manager() ? button("Unlock card", "unlock", "outline") : ""}</div></form></section>`;
+}
+function teamLeaderboardView() {
+  const standings = teamStandings(s, event());
+  return `<section class="panel"><div class="panel-head"><h2>${esc(event().format)} team standings</h2>${button("Export teams", "export-teams", "outline")}</div>${table(["POS", "TEAM", "THRU", "GROSS", "NET", "ATTESTED"], standings.map((t, i, a) => `<tr><td>${t.thru ? a.findIndex((x) => x.net === t.net && x.thru === t.thru) + 1 : "—"}</td><td>${esc(t.name)}</td><td>${t.thru}</td><td>${t.thru ? t.gross : "—"}</td><td>${t.thru ? t.net : "—"}</td><td>${t.attested}/${s.rounds.filter((r) => r.eventId === eventId).length}</td></tr>`).join(""))}<div class="panel-foot">One shared gross card per team, ranked by net strokes. Team handicap is organiser-specified. Tied teams share positions; individual countback does not apply to this team view.</div></section>`;
+}
+function handicapsView() {
+  return `${heading("Handicaps & federation records", "Provider-labelled records, source dates, and course handicap calculations.", manager() ? button("Record handicap", "new-handicap") + button("Import records", "import-handicaps", "outline") + button("Export attested rounds", "export-handicaps", "outline") : "")}<div class="info-banner">Live England Golf / MyEG and USGA / GHIN access is not connected. The records below are supplied by your organiser and are explicitly marked unverified.</div><div class="plan-grid"><article class="panel plan"><h2>England Golf / MyEG</h2><p>Request authorised WHS/CDH integration access through England Golf. Ask for the partner agreement, API documentation, sandbox, credentials, and golfer consent requirements.</p><a class="text-button" href="https://www.englandgolf.org/" target="_blank" rel="noopener noreferrer">England Golf website →</a></article><article class="panel plan"><h2>USGA / GHIN</h2><p>Ask USGA/GHIN or your Allied Golf Association about approved software access and score-posting permissions. A golfer's normal app login is not a partner API credential.</p><a class="text-button" href="https://www.usga.org/handicapping/ghin.html" target="_blank" rel="noopener noreferrer">USGA GHIN information →</a></article></div><section class="panel">${table(["PLAYER", "PROVIDER", "MEMBERSHIP ID", "INDEX", "AS OF", "PLAYING HCP", "SOURCE"], s.handicapRecords.map((r) => `<tr><td>${esc(player(r.playerId)?.name)}</td><td>${esc(r.provider)}</td><td>${esc(r.membershipId)}</td><td>${r.index}</td><td>${shortDate(r.asOf)}</td><td>${r.playingHandicap ?? "—"}</td><td>Organiser-provided · unverified</td></tr>`).join(""))}<div class="panel-foot">Calculation: index × slope / 113 + course rating − par, then allowance and rounding. Confirm competition rules with your governing body. Existing event handicaps are not silently changed.</div></section>`;
+}
+function renderPasswordReset(token) {
+  document.querySelector("#app").innerHTML =
+    `<section class="auth-form"><a class="brand" href="/">ApexLinks.</a><h2>Choose a new password</h2><form id="password-reset">${input("New password", "password", "", "password", 'required minlength="12" maxlength="128" autocomplete="new-password"')}<p class="form-error" role="alert"></p><button class="primary" type="submit">Reset password</button></form></section>`;
+  document.querySelector("#password-reset").onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector("button");
+    btn.disabled = true;
+    try {
+      const d = await api("auth/reset", "POST", {
+        token,
+        password: new FormData(e.target).get("password"),
+      });
+      history.replaceState({}, "", "/");
+      me = null;
+      csrf = "";
+      renderAuth();
+      toast(d.message);
+    } catch (err) {
+      e.target.querySelector(".form-error").textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  };
+}
+function queueDialog() {
+  const queue = readQueue(me.id),
+    d = dialog(
+      "Queued scorecards",
+      "<p>These drafts are saved on this device only. Sync checks the original card version. Conflicting scores will never overwrite newer server scores automatically.</p>" +
+        queue
+          .map(
+            (q, i) =>
+              `<section class="notice"><h3>${esc(q.body.team || player(q.body.playerId)?.name || "Player card")}</h3><p>${time(q.saved)} · ${q.body.scores.map((n) => n ?? "–").join(", ")}</p><div class="button-row"><button type="button" class="primary" data-sync="${i}">Sync card</button><button type="button" class="outline" data-discard="${i}">Discard local draft</button></div><p class="form-error" data-queue-error="${i}" role="alert"></p></section>`,
+          )
+          .join(""),
+      null,
+      { wide: true },
+    );
+  d.querySelectorAll("[data-sync]").forEach(
+    (btn) =>
+      (btn.onclick = action(async () => {
+        const q = queue[Number(btn.dataset.sync)];
+        try {
+          await api(`orgs/${q.orgId}/${q.path}`, "POST", q.body);
+          removeQueued(me.id, q.key);
+          d.close();
+          await refresh();
+          toast("Queued scorecard synced.");
+        } catch (err) {
+          d.querySelector(
+            `[data-queue-error="${btn.dataset.sync}"]`,
+          ).textContent =
+            err.message +
+            " Your local scores remain above. Review the current server card before deciding which scores to keep.";
+        }
+      })),
+  );
+  d.querySelectorAll("[data-discard]").forEach(
+    (btn) =>
+      (btn.onclick = () => {
+        if (confirm("Permanently discard this local draft?")) {
+          removeQueued(me.id, queue[Number(btn.dataset.discard)].key);
+          d.close();
+          render();
+        }
+      }),
+  );
+}
+
 function bind() {
   document.querySelectorAll("[data-page]").forEach(
     (b) =>
@@ -724,6 +917,15 @@ function bind() {
       render();
     }),
   );
+  document.querySelector("#team-picker")?.addEventListener("change", (e) => {
+    if (dirty && !confirm("Discard unsaved scores?")) {
+      e.target.value = selectedTeam;
+      return;
+    }
+    dirty = false;
+    selectedTeam = e.target.value;
+    render();
+  });
   document.querySelector("#player-picker")?.addEventListener("change", (e) => {
     if (dirty && !confirm("Discard unsaved scores?")) {
       e.target.value = playerId;
@@ -755,30 +957,50 @@ function bind() {
     .querySelector("#score-form")
     ?.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const f = e.target;
-      const b = e.submitter;
-      b.disabled = true;
-      try {
-        const scores = Array.from({ length: 18 }, (_, i) =>
-          f.elements["hole-" + i].value === ""
-            ? null
-            : Number(f.elements["hole-" + i].value),
-        );
-        await write("cards", {
+      const f = e.target,
+        btn = e.submitter;
+      btn.disabled = true;
+      const team = teamFormats.includes(event().format),
+        path = team ? "team-cards" : "cards",
+        body = {
           roundId,
-          playerId,
-          scores,
+          ...(team
+            ? {
+                team: selectedTeam,
+                handicap: Number(f.elements.teamHandicap.value),
+              }
+            : { playerId }),
+          scores: Array.from({ length: 18 }, (_, i) =>
+            f.elements["hole-" + i].value === ""
+              ? null
+              : Number(f.elements["hole-" + i].value),
+          ),
           version: Number(f.dataset.version),
-          submit: b.value === "submit",
-        });
+          submit: btn.value === "submit",
+        };
+      try {
+        await write(path, body);
         dirty = false;
         await loadLeaderboard();
         render();
         toast("Scorecard saved on the server.");
       } catch (err) {
-        toast(err.message);
+        if (err instanceof TypeError || !navigator.onLine) {
+          try {
+            queueScore(me.id, org.id, path, body);
+            dirty = false;
+            render();
+            toast(
+              "Connection lost. Scorecard queued on this device; review and sync when online.",
+            );
+          } catch {
+            toast(
+              "Unable to save locally. Keep this page open and copy your scores.",
+            );
+          }
+        } else toast(err.message);
       } finally {
-        b.disabled = false;
+        btn.disabled = false;
       }
     });
   document.querySelectorAll("[data-action]").forEach(
@@ -786,6 +1008,280 @@ function bind() {
       (b.onclick = action(async () => {
         const id = b.dataset.id;
         switch (b.dataset.action) {
+          case "import-handicaps":
+            dialog(
+              "Import supplied handicap records",
+              "<p>Paste a JSON array exported or prepared by your club. Each record needs playerEmail, provider, membershipId, index and asOf. This does not contact or verify a federation service.</p>" +
+                textArea(
+                  "Records JSON",
+                  "records",
+                  '[{"playerEmail":"player@example.com","provider":"USGA / GHIN","membershipId":"1234567","index":12.4,"asOf":"2026-10-19"}]',
+                ),
+              async (f) => {
+                let records;
+                try {
+                  records = JSON.parse(f.get("records"));
+                } catch {
+                  throw Error("Enter a valid JSON array.");
+                }
+                await write("handicap-import", { records });
+              },
+              { wide: true },
+            );
+            break;
+          case "export-handicaps": {
+            const records = s.cards
+              .filter((c) => c.status === "Attested")
+              .map((c) => {
+                const r = s.rounds.find((r) => r.id === c.roundId),
+                  p = player(c.playerId),
+                  e = s.events.find((e) => e.id === r.eventId),
+                  cr = course(r.courseId);
+                return {
+                  player: p.name,
+                  playerEmail: p.email,
+                  format: e.format,
+                  date: r.date,
+                  course: cr?.name,
+                  tee: cr?.tee,
+                  pars: r.pars,
+                  strokeIndexes: r.indexes,
+                  grossScores: c.scores,
+                  holesPlayed: c.scores.filter((n) => n !== null).length,
+                  courseRating: cr?.rating,
+                  slope: cr?.slope,
+                  status: "Organiser-attested; not federation-posted",
+                };
+              });
+            download(
+              "apexlinks-attested-rounds.json",
+              JSON.stringify(records, null, 2),
+              "application/json",
+            );
+            break;
+          }
+          case "score-queue":
+            queueDialog();
+            break;
+          case "new-matches":
+            if (!round()) return toast("Add a competition round first.");
+            if (
+              confirm("Generate the next bracket stage in the selected round?")
+            ) {
+              await write("matches", { roundId });
+              render();
+            }
+            break;
+          case "finalise-match": {
+            const m = s.matches.find((m) => m.id === id);
+            if (m.status === "Completed") {
+              if (confirm("Reopen this match and its scorecards?")) {
+                await write("matches/" + id + "/reopen");
+                render();
+              }
+              break;
+            }
+            dialog(
+              "Finalise match",
+              select(
+                "Winner decision",
+                "winner",
+                [
+                  ["", "Use calculated result"],
+                  [m.playerA, player(m.playerA).name],
+                  [m.playerB, player(m.playerB).name],
+                ],
+                "",
+              ) +
+                textArea(
+                  "Reason (required for playoff / concession override)",
+                  "reason",
+                ) +
+                "<p>An explicit winner records an organiser decision. It does not invent or post extra-hole scores.</p>",
+              async (f) =>
+                write("matches/" + id + "/finalise", Object.fromEntries(f)),
+            );
+            break;
+          }
+          case "entry-status": {
+            const entry = s.entries.find((e) => e.id === id);
+            dialog(
+              "Entry status",
+              select(
+                "Competition status",
+                "status",
+                ["Registered", "Withdrawn", "Disqualified", "No return"],
+                entry.status === "Waitlisted" ? "Registered" : entry.status,
+              ) +
+                textArea(
+                  "Reason for withdrawal / decision",
+                  "reason",
+                  entry.reason || "",
+                ) +
+                "<p>Withdrawing before play promotes the first waiting-list player. This does not refund or void an invoice.</p>",
+              async (f) => write("entry-status/" + id, Object.fromEntries(f)),
+            );
+            break;
+          }
+          case "new-handicap":
+            if (!s.players.length) return toast("Add a player first.");
+            dialog(
+              "Record supplied handicap",
+              select("Player", "playerId", playerOptions(), s.players[0].id) +
+                select(
+                  "Record provider",
+                  "provider",
+                  [
+                    "England Golf / MyEG",
+                    "USGA / GHIN",
+                    "Other federation",
+                    "Manual",
+                  ],
+                  "England Golf / MyEG",
+                ) +
+                input(
+                  "Membership / CDH / GHIN number",
+                  "membershipId",
+                  "",
+                  "text",
+                  'required maxlength="80"',
+                ) +
+                input(
+                  "Handicap index",
+                  "index",
+                  18,
+                  "number",
+                  'min="-10" max="54" step="0.1" required',
+                ) +
+                input("Record date", "asOf", today(), "date", "required") +
+                select(
+                  "Calculate playing handicap for course (optional)",
+                  "courseId",
+                  [
+                    ["", "Store record only"],
+                    ...s.courses.map((c) => [c.id, c.name + " · " + c.tee]),
+                  ],
+                  "",
+                ) +
+                input(
+                  "Competition allowance (%)",
+                  "allowance",
+                  100,
+                  "number",
+                  'min="1" max="100" required',
+                ) +
+                "<p>This records a value you supply. It is not a verified federation API response. Calculating a playing handicap changes the player profile, not existing tournament entries.</p>",
+              async (f) =>
+                write("handicap-records", {
+                  ...Object.fromEntries(f),
+                  index: number(f, "index"),
+                  allowance: number(f, "allowance"),
+                }),
+            );
+            break;
+          case "booking-rules":
+            if (!s.courses.length) return toast("Add a course first.");
+            {
+              const c = course(id) || s.courses[0],
+                r = s.bookingRules.find((r) => r.courseId === c.id);
+              dialog(
+                "Booking hours & holidays",
+                select(
+                  "Course",
+                  "courseId",
+                  s.courses.map((c) => [c.id, c.name + " · " + c.tee]),
+                  c.id,
+                ) +
+                  input(
+                    "Timezone",
+                    "timezone",
+                    r?.timezone || "Europe/London",
+                    "text",
+                    "required",
+                  ) +
+                  input(
+                    "Opening time",
+                    "open",
+                    r?.open || "07:00",
+                    "time",
+                    "required",
+                  ) +
+                  input(
+                    "Last slot must finish by",
+                    "close",
+                    r?.close || "20:00",
+                    "time",
+                    "required",
+                  ) +
+                  input(
+                    "Slot interval (minutes)",
+                    "interval",
+                    r?.interval || 10,
+                    "number",
+                    'min="5" max="30" required',
+                  ) +
+                  "<fieldset><legend>Closed weekdays</legend>" +
+                  [
+                    "Sunday",
+                    "Monday",
+                    "Tuesday",
+                    "Wednesday",
+                    "Thursday",
+                    "Friday",
+                    "Saturday",
+                  ]
+                    .map(
+                      (day, i) =>
+                        `<label class="check-label"><input type="checkbox" name="closedDays" value="${i}" ${r?.closedDays.includes(i) ? "checked" : ""}>${day}</label>`,
+                    )
+                    .join("") +
+                  "</fieldset>" +
+                  textArea(
+                    "Closed dates (YYYY-MM-DD, one per line)",
+                    "closedDates",
+                    r?.closedDates.join("\n") || "",
+                  ),
+                async (f) =>
+                  write("booking-rules", {
+                    ...Object.fromEntries(f),
+                    interval: number(f, "interval"),
+                    closedDays: f.getAll("closedDays").map(Number),
+                    closedDates: String(f.get("closedDates"))
+                      .split(/\s+/)
+                      .filter(Boolean),
+                  }),
+              );
+              break;
+            }
+          case "checkout-status": {
+            const d = await api(endpoint("checkout-status/" + id), "POST", {});
+            toast(d.message);
+            break;
+          }
+          case "checkout": {
+            const result = await api(endpoint("checkout/" + id), "POST", {});
+            const url = new URL(result.url);
+            if (
+              url.protocol !== "https:" ||
+              url.hostname !== "checkout.stripe.com"
+            )
+              throw Error("Invalid checkout URL.");
+            location.assign(url.href);
+            break;
+          }
+          case "export-teams":
+            downloadCSV("apexlinks-team-results.csv", [
+              ["Team", "Holes", "Gross", "Net", "Attested"],
+              ...teamStandings(s, event()).map((t) => [
+                t.name,
+                t.thru,
+                t.gross,
+                t.net,
+                t.attested,
+              ]),
+            ]);
+            break;
+
           case "logout":
             if (dirty && !confirm("Discard unsaved scores?")) return;
             await api("auth/logout", "POST", {});
@@ -943,14 +1439,22 @@ function bind() {
           case "attest":
           case "unlock": {
             if (dirty) return toast("Save or discard your edits first.");
-            const c = s.cards.find(
-              (c) => c.roundId === roundId && c.playerId === playerId,
+            const team = teamFormats.includes(event().format),
+              c = team
+                ? s.teamCards.find(
+                    (c) => c.roundId === roundId && c.team === selectedTeam,
+                  )
+                : s.cards.find(
+                    (c) => c.roundId === roundId && c.playerId === playerId,
+                  );
+            await write(
+              (team ? "team-cards" : "cards") + "/_/" + b.dataset.action,
+              {
+                roundId,
+                ...(team ? { team: selectedTeam } : { playerId }),
+                version: c.version,
+              },
             );
-            await write("cards/_/" + b.dataset.action, {
-              roundId,
-              playerId,
-              version: c.version,
-            });
             render();
             break;
           }
@@ -1083,7 +1587,7 @@ function bind() {
                 select(
                   "Role",
                   "role",
-                  ["manager", "scorer", "player"],
+                  ["manager", "scorer", "player", "viewer"],
                   "player",
                 ) +
                 "<p>The recipient needs an ApexLinks account using this email. Share the generated code yourself; ApexLinks does not send email.</p>",
@@ -1132,7 +1636,7 @@ function bind() {
               d.members
                 .map(
                   (m) =>
-                    `<div class="member-row"><strong>${esc(m.name)}</strong><small>${esc(m.email)}</small>${select("Role", m.id, ["admin", "manager", "scorer", "player"], m.role)}</div>`,
+                    `<div class="member-row"><strong>${esc(m.name)}</strong><small>${esc(m.email)}</small>${select("Role", m.id, ["admin", "manager", "scorer", "player", "viewer"], m.role)}</div>`,
                 )
                 .join(""),
               async (f) => {
@@ -1301,6 +1805,8 @@ setInterval(async () => {
   }
 }, 10000);
 async function boot() {
+  const resetCode = new URLSearchParams(location.search).get("reset");
+  if (resetCode) return renderPasswordReset(resetCode);
   const publicCode = new URLSearchParams(location.search).get("leaderboard");
   if (publicCode) return publicBoard(publicCode);
   try {
@@ -1321,12 +1827,43 @@ async function boot() {
     document.querySelector("#retry").onclick = boot;
   }
 }
+function spectatorTable(d) {
+  if (teamFormats.includes(d.event.format))
+    return table(
+      ["TEAM", "THRU", "GROSS", "NET"],
+      (d.teamStandings || [])
+        .map(
+          (t) =>
+            `<tr><td>${esc(t.name)}</td><td>${t.thru}</td><td>${t.thru ? t.gross : "—"}</td><td>${t.thru ? t.net : "—"}</td></tr>`,
+        )
+        .join(""),
+    );
+  if (d.event.format === "Match play")
+    return table(
+      ["STAGE", "PLAYER A", "PLAYER B", "STATUS", "RESULT"],
+      (d.matches || [])
+        .map(
+          (m) =>
+            `<tr><td>${m.stage}</td><td>${esc(m.nameA)}</td><td>${esc(m.nameB)}</td><td>${m.status}</td><td>${esc(m.winnerName ? m.winnerName + " wins: " + m.result : "In progress")}</td></tr>`,
+        )
+        .join(""),
+    );
+  return table(
+    ["POS", "PLAYER", "DIVISION", "THRU", "GROSS", "NET", "POINTS"],
+    d.rows
+      .map(
+        (r) =>
+          `<tr><td>${r.position ?? (r.status !== "Registered" ? esc(r.status) : "—")}</td><td>${esc(r.name)}</td><td>${esc(r.division)}</td><td>${r.thru}</td><td>${r.thru ? r.gross : "—"}</td><td>${r.thru ? r.net : "—"}</td><td>${r.points}</td></tr>`,
+      )
+      .join(""),
+  );
+}
 async function publicBoard(code) {
   const update = async () => {
     try {
       const d = await api("public/" + encodeURIComponent(code));
       document.querySelector("#app").innerHTML =
-        `<div class="spectator"><a class="brand" href="/">ApexLinks.</a>${heading(d.event.name, `${shortDate(d.event.date)} · ${d.event.format} · ${d.event.status}`)}<section class="panel">${table(["POS", "PLAYER", "DIVISION", "THRU", "GROSS", "NET", "POINTS"], d.rows.map((r) => `<tr><td>${r.position ?? "—"}</td><td>${esc(r.name)}</td><td>${esc(r.division)}</td><td>${r.thru}</td><td>${r.thru ? r.gross : "—"}</td><td>${r.thru ? r.net : "—"}</td><td>${r.points}</td></tr>`).join(""))}</section><p>Provisional until all rounds close. Refreshes every 10 seconds. Ties share a position; no countback. Stroke totals depend on holes played.</p></div>`;
+        `<div class="spectator"><a class="brand" href="/">ApexLinks.</a>${heading(d.event.name, `${shortDate(d.event.date)} · ${d.event.format} · ${d.event.status}`)}<section class="panel">${spectatorTable(d)}</section><p>Provisional until competition rounds close. Refreshes every 10 seconds. Positions follow the organiser's configured tiebreak rules. Stroke totals depend on holes played.</p></div>`;
     } catch (err) {
       document.querySelector("#app").innerHTML =
         `<div class="empty"><h1>Leaderboard unavailable</h1><p>${esc(err.message)}</p><a href="/">Return to ApexLinks</a></div>`;

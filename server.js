@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { openStore } from "./lib/store.js";
+import { createMailer, createPayments } from "./lib/providers.js";
+import { seedDemoAccounts } from "./lib/demo.js";
 import { createApi } from "./lib/api.js";
 const root = path.resolve(fileURLToPath(new URL("./public/", import.meta.url)));
 const types = {
@@ -13,9 +15,15 @@ const types = {
 export function createApp({
   database = process.env.DATABASE_PATH || path.resolve("data/apexlinks.sqlite"),
   secure = process.env.NODE_ENV === "production",
+  mailOptions,
+  paymentOptions,
+  demoPassword,
 } = {}) {
   const db = openStore(database),
-    api = createApi(db, { secure });
+    mailer = createMailer(mailOptions),
+    payments = createPayments(db, paymentOptions),
+    api = createApi(db, { secure, mailer, payments });
+  if (demoPassword !== undefined) seedDemoAccounts(db, demoPassword);
   const server = http.createServer(async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "same-origin");
@@ -48,6 +56,13 @@ export function createApp({
             }
             chunks.push(chunk);
           }
+          if (req.url === "/api/payments/webhook" && req.method === "POST") {
+            const result = payments.webhook(
+              Buffer.concat(chunks),
+              req.headers["stripe-signature"],
+            );
+            return res.end(JSON.stringify(result));
+          }
           if (length) {
             if (!req.headers["content-type"]?.startsWith("application/json")) {
               const e = new Error("Use application/json.");
@@ -75,7 +90,9 @@ export function createApp({
                 process.env.RENDER && !process.env.DATABASE_PATH
                   ? "ephemeral"
                   : "local",
-              paymentProvider: false,
+              paymentProvider: payments.configured,
+              mailProvider: mailer.configured,
+              demoAccounts: process.env.ENABLE_DEMO_ACCOUNTS === "true",
               handicapProvider: false,
             }),
           );
@@ -135,7 +152,14 @@ if (
   process.argv[1] &&
   path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  const server = createApp();
+  if (process.env.ENABLE_DEMO_ACCOUNTS === "true" && !process.env.DEMO_PASSWORD)
+    throw Error("Set DEMO_PASSWORD securely before enabling demo accounts.");
+  const server = createApp({
+    demoPassword:
+      process.env.ENABLE_DEMO_ACCOUNTS === "true"
+        ? process.env.DEMO_PASSWORD
+        : undefined,
+  });
   server.listen(Number(process.env.PORT) || 3000, "0.0.0.0", () => {
     console.log("ApexLinks listening on port " + (process.env.PORT || 3000));
     if (process.env.RENDER && !process.env.DATABASE_PATH)
