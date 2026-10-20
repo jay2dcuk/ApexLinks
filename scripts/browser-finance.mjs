@@ -17,7 +17,7 @@ const server = createApp({
     appURL: "https://app.example",
     fetcher: async (_url, opts) => {
       verification = JSON.parse(opts.body);
-      return { ok: true };
+      return { ok: true, json: async () => ({ id: "email_browser" }) };
     },
   },
   paymentOptions: {
@@ -197,10 +197,84 @@ try {
     ).status(),
     403,
   );
+  assert.equal(
+    (await pp.request.get(`${base}/api/orgs/${orgId}/campaigns`)).status(),
+    403,
+  );
+  const verifyPlayer = await pp.request.post(
+    base + "/api/auth/verify-request",
+    {
+      headers: { "X-CSRF-Token": pa.csrf },
+      data: {},
+    },
+  );
+  assert.equal(verifyPlayer.status(), 200);
+  const playerToken = new URL(
+    verification.text.match(/https:\/\/app.example\/\?verify=[a-f0-9]+/)[0],
+  ).searchParams.get("verify");
+  await pp.goto(base + "/?verify=" + playerToken);
+  await pp.getByRole("button", { name: "Confirm email verification" }).click();
+  await pp.getByText("Your email is verified.", { exact: true }).waitFor();
+  await pp.getByRole("link", { name: "Return to ApexLinks" }).click();
+  await pp.getByRole("heading", { name: "A great day starts here." }).waitFor();
+  await pp.locator('nav [data-page="Settings"]').click();
+  await pp
+    .getByRole("button", { name: "Email preferences", exact: true })
+    .click();
+  await pp.getByRole("checkbox").check();
+  await pp.getByRole("button", { name: "Save", exact: true }).click();
+  await pp.locator("dialog").waitFor({ state: "detached" });
+  await p.bringToFront();
+  await p.locator('nav [data-page="Campaigns"]').click();
+  await p.getByRole("button", { name: "Draft campaign", exact: true }).click();
+  await p
+    .getByLabel("Email subject", { exact: true })
+    .fill("Club practice briefing");
+  await p
+    .getByLabel("Email message", { exact: true })
+    .fill("Please meet the starter before play.");
+  await p.getByRole("button", { name: "Save", exact: true }).click();
+  await p
+    .getByRole("cell", { name: "Club practice briefing", exact: true })
+    .waitFor();
+  await p
+    .getByRole("button", { name: "Preview / schedule", exact: true })
+    .click();
+  await p.getByText(/1 currently eligible email/).waitFor();
+  await p.getByRole("checkbox").check();
+  await p.getByRole("button", { name: "Queue campaign", exact: true }).click();
+  await p.locator("dialog").waitFor({ state: "detached" });
+  try {
+    await p.getByRole("cell", { name: "Accepted: 1", exact: true }).waitFor();
+  } catch (error) {
+    console.log(
+      "Campaign diagnostic:",
+      await (await p.request.get(`${base}/api/orgs/${orgId}/campaigns`)).json(),
+    );
+    throw error;
+  }
+  const unsubscribeToken = new URL(
+    verification.text.match(
+      /https:\/\/app.example\/\?unsubscribe=[a-f0-9]+/,
+    )[0],
+  ).searchParams.get("unsubscribe");
+  await pp.goto(base + "/?unsubscribe=" + unsubscribeToken);
+  await pp
+    .getByRole("button", { name: "Unsubscribe from club emails" })
+    .click();
+  await pp
+    .getByText("Club campaign emails are disabled for this address.", {
+      exact: true,
+    })
+    .waitFor();
+  const prefs = await (
+    await pp.request.get(`${base}/api/orgs/${orgId}/email-preferences`)
+  ).json();
+  assert.equal(prefs.preferences[0].consented, false);
   await player.close();
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: verified Stripe payment, partial refund, net finance totals, restricted accounting export, email confirmation and player permission checks (mock providers only).",
+    "PASS: verified payment, partial refund, accounting export, email verification, player consent, queued campaign acceptance, unsubscribe and restricted permissions (mock providers only).",
   );
 } finally {
   await browser.close();

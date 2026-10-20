@@ -136,7 +136,7 @@ For local role testing, run `npm run seed:demo -- --show-password` to generate a
 
 See [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) for Stripe, Resend, England Golf/MyEG and USGA/GHIN access steps, privacy requirements and supported import formats. Card and email adapters require your own provider accounts and secure Render variables. No live MyEG/USGA connection, automatic handicap sync or official score posting exists yet; proprietary endpoints and access rights are not invented.
 
-Remaining product gaps include a freeform report/PDF designer, automated recurring billing, general email campaigns/SMS/push, direct accounting synchronisation, approved federation API adapters, and mixed-tee match/team rules. The existing provider adapters still require your own credentials and live verification. Team ties currently remain shared; individual countback does not apply to the shared-team leaderboard. Increasing event capacity alone does not automatically promote waiting-list players: use their entry status deliberately, or release a registered entry before play.
+Remaining product gaps include a freeform report/PDF designer, automated recurring billing, SMS/push, direct accounting synchronisation, approved federation API adapters, and mixed-tee match/team rules. The existing provider adapters still require your own credentials and live verification. Team ties currently remain shared; individual countback does not apply to the shared-team leaderboard. Increasing event capacity alone does not automatically promote waiting-list players: use their entry status deliberately, or release a registered entry before play.
 
 Before production launch, configure and verify real provider services, backups/restoration, monitoring, accessibility/security review and load testing. This version has not undergone independent production certification or a full Golf Genius feature-parity audit.
 
@@ -148,3 +148,13 @@ Before production launch, configure and verify real provider services, backups/r
 - **Settings → Verify email:** Resend delivers a single-use confirmation link valid for 24 hours. Opening the link does not change the account until Confirm is clicked. Tokens are stored as hashes, requests are limited to one per minute, and another signed-in account cannot redeem the link. Existing accounts continue to work while clubs configure delivery.
 
 Enable the additional Stripe refund events described in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md). These workflows were tested with simulated provider responses; live delivery/processing still requires your own secure provider configuration and verification. Run `npm run test:browser:finance` with the same optional Playwright environment used by the other browser suites.
+
+## Version 0.6 consent-based email campaigns
+
+**Settings → Email preferences** lets a golfer with a linked player profile and verified account email subscribe to club campaign messages. Consent defaults to off and is tied to the exact player email. Organisers cannot opt golfers in on their behalf.
+
+Organisers use **Campaigns → Draft campaign → Preview / schedule** to target all subscribed golfers or registered entrants of a chosen event. They explicitly confirm sending, then queue immediately or schedule within 30 days. Audiences are deduplicated by email (maximum 1,000), with eligibility checked again before each provider request. Cancellation stops unsent work; a message already being accepted cannot be recalled.
+
+A durable SQLite queue processes at most one message per second while the server is running. Restarts preserve queued work. Provider requests use stable per-message idempotency keys, bounded retries and a 23-hour cutoff after first attempt. Unknown results become **Review**, requiring operator investigation; they are not labelled delivered. **Accepted** means the email provider accepted the request, not that it reached an inbox. Bounces, spam complaints, delivery receipts, SMS and push are not synchronised in this release. Do not manually recreate campaigns to resolve an unknown attempt without checking provider logs.
+
+Each message contains an unsubscribe link with explicit confirmation; opening a link alone does not alter consent. Private unsubscribe tokens, recipient email lists and provider credentials are not returned in campaign reports or cached app assets. The existing Resend environment configuration enables the queue. Hosting must stay running for on-time scheduled delivery; sleeping Render services delay work until they resume. Tests use mocked email only.

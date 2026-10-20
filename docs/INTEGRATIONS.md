@@ -68,7 +68,7 @@ In Render, add:
 
 Allow outbound HTTPS to `api.resend.com` if networking is restricted. The Forgot password flow sends a single-use link valid for 30 minutes. Only token hashes are stored. Successful reset invalidates every existing session and outstanding reset token for that account. Without configured email delivery, the UI tells users recovery is unavailable; it does not pretend to send mail.
 
-Invitations still use codes that administrators share themselves. SMS, general event-email campaigns, push notifications and direct accounting synchronisation are not implemented. Email verification is supported through the same configured sender. Real provider delivery and card processing have not been validated without credentials; tests use simulated provider responses and signed test webhooks.
+Invitations still use codes that administrators share themselves. SMS, push notifications and direct accounting synchronisation are not implemented. Consent-based email campaigns are supported through Resend. Email verification is supported through the same configured sender. Real provider delivery and card processing have not been validated without credentials; tests use simulated provider responses and signed test webhooks.
 
 ## Stripe refunds
 
@@ -79,3 +79,11 @@ Refunds may be partial. Pending/unconfirmed amounts remain reserved, and a timeo
 ## Email verification
 
 The existing `RESEND_API_KEY`, `EMAIL_FROM` and HTTPS `APP_URL` settings also enable verification in Settings. Links expire after 24 hours and require explicit confirmation. They cannot reset a password. ApexLinks stores a verification timestamp separately from password recovery and does not block existing accounts pending verification. Provider acceptance of a message is not proof of inbox delivery; check the provider delivery logs and sender-domain configuration.
+
+## Campaign delivery through Resend
+
+The same secure Resend settings enable scheduled, plain-text email campaigns. Players must verify their account email, have a player profile linked to that address, and opt in under Settings → Email preferences. Organisers draft, preview, explicitly confirm and queue campaigns. No real campaign is sent by tests or development setup.
+
+The application stores a durable recipient queue, rechecks consent immediately before sending and includes a club-specific unsubscribe link. Requests reuse Resend idempotency keys for bounded retries, stopping before a 24-hour retention period can expire. Provider **Accepted** is not delivery confirmation; check Resend logs for delivery, bounces and complaints. Delivery-event webhooks are not configured in this release. Unknown attempts labelled Review require operator review, not a fresh duplicate campaign.
+
+Keep the web service running for scheduled processing, and use persistent SQLite storage. A sleeping service resumes work when it wakes, which may be later than the requested send time. Configure sender-domain authentication and verify provider limits before using live recipients.

@@ -85,6 +85,7 @@ const nav = {
   Reports: "↗",
   Operations: "◈",
   Inbox: "✉",
+  Campaigns: "↗",
   Handicaps: "⌁",
   Settings: "⚙",
 };
@@ -556,8 +557,24 @@ function reportsView() {
       .join(""),
   )}</section>`;
 }
+function campaignsView() {
+  if (!manager()) return empty("Email campaigns are available to organisers.");
+  return `${heading("Email campaigns", "Send scheduled, consent-based club emails.", button("Draft campaign", "campaign-new"))}<div class="info-banner">Only golfers who verified their email and explicitly subscribed are eligible. Provider acceptance does not confirm delivery. SMS and push are not connected.</div><section class="panel">${table(
+    ["SUBJECT", "AUDIENCE", "STATUS", "RESULTS", ""],
+    (s.campaigns || [])
+      .map(
+        (c) =>
+          `<tr><td>${esc(c.subject)}</td><td>${esc(c.eventId ? s.events.find((e) => e.id === c.eventId)?.name : "All subscribed golfers")}</td><td>${esc(c.status)}</td><td>${
+            Object.entries(c.counts)
+              .map(([status, count]) => `${esc(status)}: ${count}`)
+              .join(" · ") || "Not queued"
+          }</td><td>${c.status === "Draft" ? button("Preview / schedule", "campaign-schedule", "text-button", `data-id="${c.id}"`) : ""}${["Draft", "Queued"].includes(c.status) ? button("Cancel", "campaign-cancel", "text-button", `data-id="${c.id}"`) : ""}</td></tr>`,
+      )
+      .join(""),
+  )}</section>`;
+}
 function settingsView() {
-  return `${heading("Workspace settings", "Manage access to your organisations and secure your account.")}<section class="panel settings-section"><h2>${esc(org.name)}</h2><p>Your role: ${esc(org.role)} · Signed in as ${esc(me.email)}</p><div class="button-row">${org.role === "admin" ? button("Invite member", "invite") + button("Manage roles", "members", "outline") : ""}${button("New organisation", "new-org", "outline")}${button("Join organisation", "join", "outline")}${button("Change password", "password", "outline")}${me.emailVerified ? '<span class="badge">Email verified</span>' : button("Verify email", "verify-email", "outline")}${button(offlineEnabled(me.id) ? "Remove offline workspace" : "Enable offline workspace", "offline-workspace", "outline")}${button("Sign out", "logout", "outline")}</div></section>${
+  return `${heading("Workspace settings", "Manage access to your organisations and secure your account.")}<section class="panel settings-section"><h2>${esc(org.name)}</h2><p>Your role: ${esc(org.role)} · Signed in as ${esc(me.email)}</p><div class="button-row">${org.role === "admin" ? button("Invite member", "invite") + button("Manage roles", "members", "outline") : ""}${button("New organisation", "new-org", "outline")}${button("Join organisation", "join", "outline")}${button("Change password", "password", "outline")}${button("Email preferences", "email-preferences", "outline")}${me.emailVerified ? '<span class="badge">Email verified</span>' : button("Verify email", "verify-email", "outline")}${button(offlineEnabled(me.id) ? "Remove offline workspace" : "Enable offline workspace", "offline-workspace", "outline")}${button("Sign out", "logout", "outline")}</div></section>${
     manager()
       ? `<section class="panel"><div class="panel-head"><h2>Audit history</h2></div>${table(
           ["WHEN", "USER", "ACTION"],
@@ -600,10 +617,12 @@ function opsHelpers() {
 function render() {
   if (!me || !s) return renderAuth();
   const names = Object.keys(nav).filter(
-    (n) => manager() || org.role === "player" || !["Finance"].includes(n),
+    (n) =>
+      (n !== "Campaigns" || manager()) &&
+      (manager() || org.role === "player" || !["Finance"].includes(n)),
   );
   document.querySelector("#app").innerHTML =
-    `<aside class="sidebar"><a class="brand" href="/"> <span class="brand-symbol">A</span>ApexLinks<span class="brand-dot">.</span></a><label class="org-switch">Workspace<select id="org-picker">${orgs.map((o) => `<option value="${o.id}" ${o.id === org.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></label><div class="nav-label">WORKSPACE</div><nav>${names.map((n) => `<button class="nav-item ${page === n || (page === "Tournament" && n === "Tournaments") ? "selected" : ""}" data-page="${n}"><span>${nav[n]}</span>${n}${n === "Inbox" && s.messages.filter((m) => !s.receipts.some((r) => r.messageId === m.id && r.userId === me.id)).length ? '<b class="nav-count">' + s.messages.filter((m) => !s.receipts.some((r) => r.messageId === m.id && r.userId === me.id)).length + "</b>" : ""}</button>`).join("")}</nav><div class="sidebar-bottom"><div class="account"><span class="avatar">${initials(me.name)}</span><div><strong>${esc(me.name)}</strong><small>${esc(org.role)}</small></div></div></div></aside><div class="main-shell"><header><div class="breadcrumb">${esc(org.name)} <span>/</span><strong>${page}</strong></div><div class="top-tools"><label class="search"><span>⌕</span><input id="search" aria-label="Search" placeholder="Search tournaments or players…" value="${esc(query)}"></label>${button("Sign out", "logout", "text-button")}</div></header><main>${offlineSession ? '<div class="warning-banner">Offline workspace — cached data may be out of date. Score changes queue on this device and must be synced after reconnecting.</div>' : ""}${me && readQueue(me.id).length ? `<div class="warning-banner">${readQueue(me.id).length} scorecard draft(s) saved on this device, waiting to sync. ${button("Review queued scores", "score-queue", "outline")}</div>` : ""}${config.storage === "ephemeral" ? '<div class="warning-banner">Render storage is temporary. Your data can disappear on redeploy or restart. Attach a persistent disk before adding real data.</div>' : ""}${page === "Overview" ? overview() : page === "Tournaments" ? tournaments() : page === "Tournament" ? tournament() : page === "Players" ? playersView() : page === "Courses" ? coursesView() : page === "Bookings" ? bookingsView() : page === "Memberships" ? membershipsView() : page === "Finance" ? financeView() : page === "Reports" ? reportsView() + reportsExtension(opsContext(), opsHelpers()) : page === "Operations" ? operationsView(opsContext(), opsHelpers()) : page === "Inbox" ? inboxView(opsContext(), opsHelpers()) : page === "Handicaps" ? handicapsView() : settingsView()}<footer><span>APEXLINKS · Golf, beautifully organised.</span><span>Server saved · ${esc(org.name)}</span></footer></main></div>`;
+    `<aside class="sidebar"><a class="brand" href="/"> <span class="brand-symbol">A</span>ApexLinks<span class="brand-dot">.</span></a><label class="org-switch">Workspace<select id="org-picker">${orgs.map((o) => `<option value="${o.id}" ${o.id === org.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></label><div class="nav-label">WORKSPACE</div><nav>${names.map((n) => `<button class="nav-item ${page === n || (page === "Tournament" && n === "Tournaments") ? "selected" : ""}" data-page="${n}"><span>${nav[n]}</span>${n}${n === "Inbox" && s.messages.filter((m) => !s.receipts.some((r) => r.messageId === m.id && r.userId === me.id)).length ? '<b class="nav-count">' + s.messages.filter((m) => !s.receipts.some((r) => r.messageId === m.id && r.userId === me.id)).length + "</b>" : ""}</button>`).join("")}</nav><div class="sidebar-bottom"><div class="account"><span class="avatar">${initials(me.name)}</span><div><strong>${esc(me.name)}</strong><small>${esc(org.role)}</small></div></div></div></aside><div class="main-shell"><header><div class="breadcrumb">${esc(org.name)} <span>/</span><strong>${page}</strong></div><div class="top-tools"><label class="search"><span>⌕</span><input id="search" aria-label="Search" placeholder="Search tournaments or players…" value="${esc(query)}"></label>${button("Sign out", "logout", "text-button")}</div></header><main>${offlineSession ? '<div class="warning-banner">Offline workspace — cached data may be out of date. Score changes queue on this device and must be synced after reconnecting.</div>' : ""}${me && readQueue(me.id).length ? `<div class="warning-banner">${readQueue(me.id).length} scorecard draft(s) saved on this device, waiting to sync. ${button("Review queued scores", "score-queue", "outline")}</div>` : ""}${config.storage === "ephemeral" ? '<div class="warning-banner">Render storage is temporary. Your data can disappear on redeploy or restart. Attach a persistent disk before adding real data.</div>' : ""}${page === "Overview" ? overview() : page === "Tournaments" ? tournaments() : page === "Tournament" ? tournament() : page === "Players" ? playersView() : page === "Courses" ? coursesView() : page === "Bookings" ? bookingsView() : page === "Memberships" ? membershipsView() : page === "Finance" ? financeView() : page === "Reports" ? reportsView() + reportsExtension(opsContext(), opsHelpers()) : page === "Operations" ? operationsView(opsContext(), opsHelpers()) : page === "Inbox" ? inboxView(opsContext(), opsHelpers()) : page === "Campaigns" ? campaignsView() : page === "Handicaps" ? handicapsView() : settingsView()}<footer><span>APEXLINKS · Golf, beautifully organised.</span><span>Server saved · ${esc(org.name)}</span></footer></main></div>`;
   bind();
 }
 function dialog(title, content, save, { wide = false, submit = "Save" } = {}) {
@@ -1878,6 +1897,82 @@ function bind() {
             );
             break;
           }
+          case "email-preferences": {
+            const data = await api(endpoint("email-preferences"));
+            dialog(
+              "Club email preferences",
+              "<p>Subscribe to club campaigns for this workspace. You can withdraw consent here or through any campaign email. Verify your email before subscribing.</p>" +
+                (data.preferences
+                  .map(
+                    (p) =>
+                      `<label class="check-label"><input type="checkbox" name="${esc(p.playerId)}" ${p.consented ? "checked" : ""}>${esc(p.name)} — receive club email campaigns</label>`,
+                  )
+                  .join("") ||
+                  "<p>No player profile is linked to your account email in this club. Ask the organiser to link your player profile.</p>"),
+              async (form) => {
+                for (const preference of data.preferences)
+                  await api(endpoint("email-preferences"), "POST", {
+                    playerId: preference.playerId,
+                    consented: form.has(preference.playerId),
+                  });
+              },
+            );
+            break;
+          }
+          case "campaign-new":
+            dialog(
+              "Draft email campaign",
+              input(
+                "Email subject",
+                "subject",
+                "",
+                "text",
+                'required maxlength="180"',
+              ) +
+                textArea("Email message", "body", "", "required") +
+                select(
+                  "Audience",
+                  "eventId",
+                  [
+                    ["", "All subscribed golfers"],
+                    ...s.events.map((e) => [e.id, e.name]),
+                  ],
+                  "",
+                ),
+              async (form) => write("campaigns", Object.fromEntries(form)),
+            );
+            break;
+          case "campaign-schedule": {
+            const preview = await api(endpoint("campaigns/" + id));
+            const campaign = s.campaigns.find((c) => c.id === id);
+            dialog(
+              "Preview and schedule email",
+              `<h3>${esc(campaign.subject)}</h3><p class="multiline">${esc(campaign.body)}</p><p>${preview.eligible} currently eligible email address(es). Consent is checked again before delivery.</p>` +
+                input(
+                  "Send at (your timezone; blank sends now)",
+                  "sendAt",
+                  "",
+                  "datetime-local",
+                ) +
+                '<label class="check-label"><input type="checkbox" name="confirmed" required>I confirm this campaign should be sent through the email provider.</label>',
+              async (form) =>
+                write(`campaigns/${id}/schedule`, {
+                  sendAt: form.get("sendAt")
+                    ? new Date(form.get("sendAt")).toISOString()
+                    : "",
+                }),
+              { submit: "Queue campaign" },
+            );
+            break;
+          }
+          case "campaign-cancel":
+            if (
+              confirm(
+                "Cancel unsent campaign emails? Emails already being accepted cannot be recalled.",
+              )
+            )
+              await write(`campaigns/${id}/cancel`, {});
+            break;
           case "verify-email": {
             const result = await api("auth/verify-request", "POST", {});
             toast(result.message);
@@ -2039,6 +2134,32 @@ setInterval(async () => {
   }
 }, 10000);
 async function boot() {
+  const unsubscribeCode = new URLSearchParams(location.search).get(
+    "unsubscribe",
+  );
+  if (unsubscribeCode) {
+    history.replaceState({}, "", "/");
+    document.querySelector("#app").innerHTML =
+      '<section class="auth-form"><a class="brand" href="/">ApexLinks.</a><h2>Club email preferences</h2><p>Confirm that you want to stop campaign emails from this club.</p><button id="unsubscribe" class="primary">Unsubscribe from club emails</button><p id="unsubscribe-result" role="status"></p><a href="/">Return to ApexLinks</a></section>';
+    document.querySelector("#unsubscribe").onclick = async (event) => {
+      event.target.disabled = true;
+      try {
+        const session = await api("auth/me");
+        csrf = session.csrf || "";
+        const result = await api("unsubscribe", "POST", {
+          token: unsubscribeCode,
+        });
+        document.querySelector("#unsubscribe-result").textContent =
+          result.message;
+        event.target.remove();
+      } catch (error) {
+        document.querySelector("#unsubscribe-result").textContent =
+          error.message;
+        event.target.disabled = false;
+      }
+    };
+    return;
+  }
   const verificationCode = new URLSearchParams(location.search).get("verify");
   if (verificationCode) {
     history.replaceState({}, "", "/");

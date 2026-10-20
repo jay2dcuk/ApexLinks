@@ -6,6 +6,7 @@ import { openStore } from "./lib/store.js";
 import { createMailer, createPayments } from "./lib/providers.js";
 import { seedDemoAccounts } from "./lib/demo.js";
 import { createApi } from "./lib/api.js";
+import { createCampaigns } from "./lib/campaigns.js";
 const root = path.resolve(fileURLToPath(new URL("./public/", import.meta.url)));
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -20,11 +21,13 @@ export function createApp({
   mailOptions,
   paymentOptions,
   demoPassword,
+  campaignWorker = true,
 } = {}) {
   const db = openStore(database),
     mailer = createMailer(mailOptions),
     payments = createPayments(db, paymentOptions),
-    api = createApi(db, { secure, mailer, payments });
+    campaigns = createCampaigns(db, mailer),
+    api = createApi(db, { secure, mailer, payments, campaigns });
   if (demoPassword !== undefined) seedDemoAccounts(db, demoPassword);
   const server = http.createServer(async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -147,7 +150,26 @@ export function createApp({
   });
   server.requestTimeout = 15000;
   server.headersTimeout = 10000;
-  server.on("close", () => db.close());
+  const campaignTimer =
+    campaignWorker && mailer.configured
+      ? setInterval(() => {
+          campaigns
+            .tick()
+            .catch(() =>
+              console.error(
+                "Campaign worker could not complete a delivery check.",
+              ),
+            );
+        }, 1000)
+      : null;
+  campaignTimer?.unref();
+  server.on("close", () => {
+    if (campaignTimer) clearInterval(campaignTimer);
+    campaigns
+      .stop()
+      .catch(() => {})
+      .finally(() => db.close());
+  });
   return server;
 }
 if (
