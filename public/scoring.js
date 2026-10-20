@@ -10,6 +10,16 @@ export function strokesOnHole(handicap, index) {
     Math.floor(handicap / 18) + (index <= ((handicap % 18) + 18) % 18 ? 1 : 0)
   );
 }
+export function bogeyScore(scores, pars, indexes, handicap = 0) {
+  return scores.reduce(
+    (total, score, i) =>
+      score == null
+        ? total
+        : total +
+          Math.sign(pars[i] - (score - strokesOnHole(handicap, indexes[i]))),
+    0,
+  );
+}
 export function cardTotals(scores, pars, indexes, handicap = 0) {
   let gross = 0,
     net = 0,
@@ -47,11 +57,26 @@ export function leaderboard(state, event) {
             settings.indexes,
             settings.handicap,
           );
+          if (event.format === "Bogey / Par")
+            t.bogey = bogeyScore(
+              c?.scores || [],
+              settings.pars,
+              settings.indexes,
+              settings.handicap,
+            );
           for (const k of Object.keys(t)) total[k] += t[k];
           if (c?.status === "Attested") total.attested++;
           return total;
         },
-        { gross: 0, net: 0, toPar: 0, points: 0, thru: 0, attested: 0 },
+        {
+          gross: 0,
+          net: 0,
+          toPar: 0,
+          points: 0,
+          thru: 0,
+          attested: 0,
+          ...(event.format === "Bogey / Par" ? { bogey: 0 } : {}),
+        },
       );
       return {
         playerId: p.id,
@@ -82,16 +107,17 @@ export function leaderboard(state, event) {
   const metric =
     event.format === "Stableford"
       ? "points"
-      : event.format === "Net stroke"
-        ? "net"
-        : "gross";
+      : event.format === "Bogey / Par"
+        ? "bogey"
+        : event.format === "Net stroke"
+          ? "net"
+          : "gross";
   const byCountback = (a, b) => {
     if (a.thru !== b.thru) return 0;
     for (let i = 0; i < Math.min(a.countback.length, b.countback.length); i++) {
-      const diff =
-        metric === "points"
-          ? b.countback[i] - a.countback[i]
-          : a.countback[i] - b.countback[i];
+      const diff = ["points", "bogey"].includes(metric)
+        ? b.countback[i] - a.countback[i]
+        : a.countback[i] - b.countback[i];
       if (diff) return diff;
     }
     return 0;
@@ -100,7 +126,9 @@ export function leaderboard(state, event) {
     (a, b) =>
       (a.status !== "Registered") - (b.status !== "Registered") ||
       !a.thru - !b.thru ||
-      (metric === "points" ? b.points - a.points : a[metric] - b[metric]) ||
+      (["points", "bogey"].includes(metric)
+        ? b[metric] - a[metric]
+        : a[metric] - b[metric]) ||
       byCountback(a, b) ||
       b.thru - a.thru ||
       a.name.localeCompare(b.name),

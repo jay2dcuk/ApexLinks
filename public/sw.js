@@ -1,10 +1,12 @@
-const CACHE = "apexlinks-shell-v07";
+const CACHE = "apexlinks-shell-v08";
 const ASSETS = [
   "/",
   "/index.html",
   "/app.js",
   "/style.css",
   "/scoring.js",
+  "/courses.js",
+  "/course-import.js",
   "/competition.js",
   "/operations.js",
   "/operations-ui.js",

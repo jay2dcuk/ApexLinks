@@ -159,7 +159,7 @@ export async function operationsAction(name, id, ctx, h) {
             "handicap",
             18,
             "number",
-            'min="-10" max="54" required',
+            'min="-72" max="144" required',
           ) +
           "<p>Use tee sets sharing the same course name. Locked once scoring starts. Individual stroke/net/Stableford only.</p>",
         async (f) =>

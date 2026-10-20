@@ -3,6 +3,7 @@ export const formats = [
   "Stroke play",
   "Net stroke",
   "Stableford",
+  "Bogey / Par",
   "Scramble",
   "Foursomes",
   "Match play",
@@ -12,13 +13,16 @@ export function countback(scores, round, handicap, format) {
   return [9, 6, 3, 1].map((n) => {
     let total = 0;
     for (let i = 18 - n; i < 18; i++) {
+      if (scores[i] == null) continue;
       const net = scores[i] - strokesOnHole(handicap, round.indexes[i]);
       total +=
         format === "Stableford"
           ? Math.max(0, 2 + round.pars[i] - net)
-          : format === "Stroke play"
-            ? scores[i]
-            : net;
+          : format === "Bogey / Par"
+            ? Math.sign(round.pars[i] - net)
+            : format === "Stroke play"
+              ? scores[i]
+              : net;
     }
     return total;
   });

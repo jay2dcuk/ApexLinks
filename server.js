@@ -7,6 +7,7 @@ import { createMailer, createPayments } from "./lib/providers.js";
 import { seedDemoAccounts } from "./lib/demo.js";
 import { createApi } from "./lib/api.js";
 import { createCampaigns } from "./lib/campaigns.js";
+import { createCourseDirectory } from "./lib/course-directory.js";
 const root = path.resolve(fileURLToPath(new URL("./public/", import.meta.url)));
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -22,12 +23,20 @@ export function createApp({
   paymentOptions,
   demoPassword,
   campaignWorker = true,
+  directoryOptions,
 } = {}) {
   const db = openStore(database),
     mailer = createMailer(mailOptions),
     payments = createPayments(db, paymentOptions),
     campaigns = createCampaigns(db, mailer),
-    api = createApi(db, { secure, mailer, payments, campaigns });
+    courseDirectory = createCourseDirectory(db, directoryOptions),
+    api = createApi(db, {
+      secure,
+      mailer,
+      payments,
+      campaigns,
+      courseDirectory,
+    });
   if (demoPassword !== undefined) seedDemoAccounts(db, demoPassword);
   const server = http.createServer(async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");

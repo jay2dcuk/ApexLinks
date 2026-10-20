@@ -1,3 +1,5 @@
+import { parseCourseImport, courseCSVColumns } from "./course-import.js";
+import { calculateHandicap, attestedRoundRecord } from "./courses.js";
 import {
   offlineEnabled,
   enableOffline,
@@ -6,6 +8,7 @@ import {
   clearOffline,
 } from "./offline.js";
 import {
+  bogeyScore,
   leaderboard as localLeaderboard,
   teamLeaderboard as localTeams,
 } from "./scoring.js";
@@ -435,7 +438,7 @@ function scoringView() {
     r.status !== "Open" ||
     c?.status === "Attested" ||
     !["Open", "Live"].includes(event().status);
-  return `<section class="panel score-panel"><div class="score-top">${roundPicker()}<label class="inline-label">Player<select id="player-picker">${entries.map((e) => `<option value="${e.playerId}" ${e.playerId === playerId ? "selected" : ""}>${esc(player(e.playerId)?.name)} · HCP ${e.handicap}</option>`).join("")}</select></label></div><div class="score-status"><strong>${esc(c?.status || "Not started")}</strong><span>Gross ${t.thru ? t.gross : "—"} · Net ${t.thru ? t.net : "—"} · ${t.points} points · ${t.thru}/18 holes</span></div><form id="score-form" data-version="${c?.version || 0}"><div class="scorecard">${r.pars.map((par, i) => `<label class="hole"><span>HOLE ${i + 1}</span><small>Par ${par} · SI ${r.indexes[i]}</small><input aria-label="Hole ${i + 1} score" name="hole-${i}" type="number" min="1" max="30" step="1" inputmode="numeric" value="${scores[i] ?? ""}" ${locked ? "disabled" : ""}></label>`).join("")}</div><div class="score-actions"><p>Playing handicap ${entry.handicap}. Blank holes are unplayed.<br>Gross scores only; net strokes and Stableford use this round’s stroke indexes.</p><div class="button-row">${!locked ? '<button class="outline" type="submit" name="mode" value="draft">Save draft</button><button class="primary" type="submit" name="mode" value="submit">Submit card</button>' : ""}${c && (scorer() || assigned) && event().format !== "Match play" && c.status !== "Attested" ? button("Attest card", "attest", "outline") : ""}${c?.status === "Attested" && manager() ? button("Unlock card", "unlock", "outline") : ""}</div></div></form><div class="panel-foot">Another scorer must attest cards entered by a scorer. Organisers may attest or unlock with an audit record. Submitted cards remain editable until attested.</div></section>`;
+  return `<section class="panel score-panel"><div class="score-top">${roundPicker()}<label class="inline-label">Player<select id="player-picker">${entries.map((e) => `<option value="${e.playerId}" ${e.playerId === playerId ? "selected" : ""}>${esc(player(e.playerId)?.name)} · HCP ${e.handicap}</option>`).join("")}</select></label></div><div class="score-status"><strong>${esc(c?.status || "Not started")}</strong><span>Gross ${t.thru ? t.gross : "—"} · Net ${t.thru ? t.net : "—"} · ${event().format === "Bogey / Par" ? label(bogeyScore(scores, r.pars, r.indexes, entry.handicap)) + " vs par" : t.points + " points"} · ${t.thru}/18 holes</span></div><form id="score-form" data-version="${c?.version || 0}"><div class="scorecard">${r.pars.map((par, i) => `<label class="hole"><span>HOLE ${i + 1}</span><small>Par ${par} · SI ${r.indexes[i]}</small><input aria-label="Hole ${i + 1} score" name="hole-${i}" type="number" min="1" max="30" step="1" inputmode="numeric" value="${scores[i] ?? ""}" ${locked ? "disabled" : ""}></label>`).join("")}</div><div class="score-actions"><p>Playing handicap ${entry.handicap}. Blank holes are unplayed.<br>Gross scores only; net strokes and Stableford use this round’s stroke indexes.</p><div class="button-row">${!locked ? '<button class="outline" type="submit" name="mode" value="draft">Save draft</button><button class="primary" type="submit" name="mode" value="submit">Submit card</button>' : ""}${c && (scorer() || assigned) && event().format !== "Match play" && c.status !== "Attested" ? button("Attest card", "attest", "outline") : ""}${c?.status === "Attested" && manager() ? button("Unlock card", "unlock", "outline") : ""}</div></div></form><div class="panel-foot">Another scorer must attest cards entered by a scorer. Organisers may attest or unlock with an audit record. Submitted cards remain editable until attested.</div></section>`;
 }
 function leaderboardView() {
   if (teamFormats.includes(event().format)) return teamLeaderboardView();
@@ -454,7 +457,7 @@ function leaderboardView() {
               "GROSS",
               "NET",
               "TO PAR",
-              "POINTS",
+              event().format === "Bogey / Par" ? "BOGEY / PAR" : "POINTS",
               "ATTESTED",
             ],
             rows
@@ -467,7 +470,7 @@ function leaderboardView() {
                       ? "net"
                       : "gross";
                 const rank = r.position;
-                return `<tr><td>${r.position ?? (r.status !== "Registered" ? esc(r.status) : "—")}</td><td>${esc(r.name)}</td><td>${r.handicap}</td><td>${r.thru}</td><td>${r.thru ? r.gross : "—"}</td><td>${r.thru ? r.net : "—"}</td><td>${r.thru ? label(r.toPar) : "—"}</td><td>${r.points}</td><td>${r.attested}/${s.rounds.filter((x) => x.eventId === eventId).length}</td></tr>`;
+                return `<tr><td>${r.position ?? (r.status !== "Registered" ? esc(r.status) : "—")}</td><td>${esc(r.name)}</td><td>${r.handicap}</td><td>${r.thru}</td><td>${r.thru ? r.gross : "—"}</td><td>${r.thru ? r.net : "—"}</td><td>${r.thru ? label(r.toPar) : "—"}</td><td>${event().format === "Bogey / Par" ? label(r.bogey) : r.points}</td><td>${r.attested}/${s.rounds.filter((x) => x.eventId === eventId).length}</td></tr>`;
               })
               .join(""),
           )}`,
@@ -490,7 +493,7 @@ function playersView() {
   )}<div class="panel-foot">Handicaps are manually entered playing handicaps. Official handicap verification is not connected.</div></section>`;
 }
 function coursesView() {
-  return `${heading("Courses & tees", "Real course pars and stroke indexes power every scorecard.", manager() ? button("＋ Add course", "new-course") : "")}${s.courses.map((c) => `<section class="panel course-panel"><div class="panel-head"><div><h2>${esc(c.name)} · ${esc(c.tee)}</h2><p>Par ${c.pars.reduce((a, b) => a + b, 0)} · Rating ${c.rating ?? "—"} · Slope ${c.slope ?? "—"}</p></div>${manager() ? button("Edit course", "edit-course", "outline", `data-id="${c.id}"`) : ""}</div>${table(["", "", ...c.pars.map((_, i) => i + 1)], `<tr><td colspan="2">Par</td>${c.pars.map((p) => `<td>${p}</td>`).join("")}</tr><tr><td colspan="2">Stroke index</td>${c.indexes.map((p) => `<td>${p}</td>`).join("")}</tr>`)}</section>`).join("") || empty("Add your first course.")}`;
+  return `${heading("Courses & tees", "Real course pars and stroke indexes power every scorecard.", manager() ? button("＋ Add course", "new-course") + button("Import tee sets", "import-courses", "outline") + button("Export tee sets", "export-courses", "outline") + button("Worldwide directory", "course-directory", "outline") : "")}${s.courses.map((c) => `<section class="panel course-panel"><div class="panel-head"><div><h2>${esc(c.name)} · ${esc(c.tee)}</h2><p>Par ${c.pars.reduce((a, b) => a + b, 0)} · Rating ${c.rating ?? "—"} · Slope ${c.slope ?? "—"} · ${esc(c.ratedFor || "Unspecified")}</p><p>${esc([c.location, c.country].filter(Boolean).join(", "))} · Organiser-provided${c.ratingAsOf ? " · As of " + esc(c.ratingAsOf) : ""}${c.ratingSource ? " · " + esc(c.ratingSource) : ""}</p></div>${manager() ? button("Edit course", "edit-course", "outline", `data-id="${c.id}"`) : ""}${button("Handicap calculator", "course-calculator", "outline", `data-id="${c.id}"`)}</div>${table(["", "", ...c.pars.map((_, i) => i + 1)], `<tr><td colspan="2">Par</td>${c.pars.map((p) => `<td>${p}</td>`).join("")}</tr><tr><td colspan="2">Stroke index</td>${c.indexes.map((p) => `<td>${p}</td>`).join("")}</tr>${c.lengths?.some((n) => n != null) ? `<tr><td colspan="2">${esc(c.lengthUnit || "yards")}</td>${c.lengths.map((n) => `<td>${n ?? "—"}</td>`).join("")}</tr>` : ""}`)}${c.directoryAttribution ? `<p class="panel-foot">${esc(c.directoryAttribution)}${c.directoryURL ? ` · <a href="${esc(c.directoryURL)}" target="_blank" rel="noopener noreferrer">Venue source</a>` : ""}</p>` : ""}</section>`).join("") || empty("Add your first course.")}`;
 }
 function bookingsView() {
   return `${heading("Tee bookings", "Book a tee slot for up to four players. Times are shown in your browser timezone.", (manager() || org.role === "player" ? button("＋ Book tee time", "new-booking") : "") + (manager() ? button("Booking rules", "booking-rules", "outline") : ""))}<section class="panel">${table(
@@ -738,7 +741,7 @@ function playerDialog(p) {
         "handicap",
         p?.handicap ?? 18,
         "number",
-        'min="-10" max="54" step="1" required',
+        'min="-72" max="144" step="1" required',
       ) +
       select(
         "Status",
@@ -756,9 +759,26 @@ function playerDialog(p) {
 }
 function courseDialog(c) {
   dialog(
-    c ? "Edit course" : "Add course",
+    c?.id ? "Edit course" : "Add course",
     input("Course name", "name", c?.name || "", "text", "required") +
       input("Tee name", "tee", c?.tee || "White", "text", "required") +
+      input("Location", "location", c?.location || "") +
+      input("Country", "country", c?.country || "") +
+      select(
+        "Rating category",
+        "ratedFor",
+        ["Men", "Women", "Unspecified"],
+        c?.ratedFor || "Unspecified",
+      ) +
+      input("Rating source", "ratingSource", c?.ratingSource || "") +
+      input("Rating source URL", "sourceURL", c?.sourceURL || "", "url") +
+      input("Rating as-of date", "ratingAsOf", c?.ratingAsOf || "", "date") +
+      select(
+        "Hole length unit",
+        "lengthUnit",
+        ["yards", "metres"],
+        c?.lengthUnit || "yards",
+      ) +
       input(
         "Course rating (optional)",
         "rating",
@@ -773,11 +793,27 @@ function courseDialog(c) {
         "number",
         'min="55" max="155" step="1"',
       ) +
-      `<p>Enter each stroke index from 1 to 18 exactly once. Existing rounds keep their captured course settings.</p><div class="course-editor">${(c?.pars || defaultPars).map((par, i) => `<div><strong>Hole ${i + 1}</strong>${input("Par", "par-" + i, par, "number", 'min="3" max="6" required')}${input("Stroke index", "si-" + i, c?.indexes[i] || defaultIndexes[i], "number", 'min="1" max="18" required')}</div>`).join("")}</div>`,
+      `<p>Enter each stroke index from 1 to 18 exactly once. Existing rounds keep their captured course settings.</p><div class="course-editor">${(c?.pars || Array(18).fill(null)).map((par, i) => `<div><strong>Hole ${i + 1}</strong>${input("Hole length (optional)", "length-" + i, c?.lengths?.[i] ?? "", "number", 'min="30" max="1000"')}${input("Par", "par-" + i, par ?? "", "number", 'min="3" max="6" required')}${input("Stroke index", "si-" + i, c?.indexes?.[i] ?? "", "number", 'min="1" max="18" required')}</div>`).join("")}</div>`,
     async (f) =>
       write(
-        c ? "courses/" + c.id : "courses",
+        c?.id ? "courses/" + c.id : "courses",
         {
+          ...Object.fromEntries(
+            [
+              "location",
+              "country",
+              "ratedFor",
+              "ratingSource",
+              "sourceURL",
+              "ratingAsOf",
+              "lengthUnit",
+            ].map((key) => [key, f.get(key)]),
+          ),
+          directoryURL: c?.directoryURL || "",
+          directoryAttribution: c?.directoryAttribution || "",
+          lengths: Array.from({ length: 18 }, (_, i) =>
+            f.get("length-" + i) ? number(f, "length-" + i) : null,
+          ),
           name: f.get("name"),
           tee: f.get("tee"),
           rating: f.get("rating") ? number(f, "rating") : null,
@@ -785,7 +821,7 @@ function courseDialog(c) {
           pars: Array.from({ length: 18 }, (_, i) => number(f, "par-" + i)),
           indexes: Array.from({ length: 18 }, (_, i) => number(f, "si-" + i)),
         },
-        c ? "PATCH" : "POST",
+        c?.id ? "PATCH" : "POST",
       ),
     { wide: true },
   );
@@ -819,7 +855,7 @@ function entryDialog(e) {
             "handicap",
             e?.handicap ?? "",
             "number",
-            'min="-10" max="54" step="1"',
+            'min="-72" max="144" step="1"',
           ) +
           input(
             "Division",
@@ -913,7 +949,7 @@ function teamScoringView() {
       !["Open", "Live"].includes(event().status);
   if (!c && !manager())
     return `<section class="panel score-panel">${roundPicker()}<h2>Team card not initialised</h2><p>An organiser must enter and save the team playing handicap first.</p></section>`;
-  return `<section class="panel score-panel"><div class="score-top">${roundPicker()}<label class="inline-label">Team<select id="team-picker">${names.map((n) => `<option ${n === selectedTeam ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label></div><h2>${esc(event().format)} — one shared card per team</h2><p>Enter the team's actual gross score on each hole. The team playing handicap is set explicitly by the organiser; it is not an automatic federation allowance.</p><div class="score-status"><strong>${esc(c?.status || "Not started")}</strong></div><form id="score-form" data-version="${c?.version || 0}">${input("Team playing handicap", "teamHandicap", c?.handicap ?? 0, "number", `min="-10" max="54" step="1" ${c ? "readonly" : ""} required`)}<div class="scorecard">${r.pars.map((par, i) => `<label class="hole"><span>HOLE ${i + 1}</span><small>Par ${par} · SI ${r.indexes[i]}</small><input aria-label="Hole ${i + 1} score" name="hole-${i}" type="number" min="1" max="30" step="1" value="${scores[i] ?? ""}" ${locked ? "disabled" : ""}></label>`).join("")}</div><div class="button-row">${!locked ? '<button class="outline" type="submit" value="draft">Save draft</button><button class="primary" type="submit" value="submit">Submit card</button>' : ""}${c && scorer() && c.status !== "Attested" ? button("Attest card", "attest", "outline") : ""}${c?.status === "Attested" && manager() ? button("Unlock card", "unlock", "outline") : ""}</div></form></section>`;
+  return `<section class="panel score-panel"><div class="score-top">${roundPicker()}<label class="inline-label">Team<select id="team-picker">${names.map((n) => `<option ${n === selectedTeam ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label></div><h2>${esc(event().format)} — one shared card per team</h2><p>Enter the team's actual gross score on each hole. The team playing handicap is set explicitly by the organiser; it is not an automatic federation allowance.</p><div class="score-status"><strong>${esc(c?.status || "Not started")}</strong></div><form id="score-form" data-version="${c?.version || 0}">${input("Team playing handicap", "teamHandicap", c?.handicap ?? 0, "number", `min="-72" max="144" step="1" ${c ? "readonly" : ""} required`)}<div class="scorecard">${r.pars.map((par, i) => `<label class="hole"><span>HOLE ${i + 1}</span><small>Par ${par} · SI ${r.indexes[i]}</small><input aria-label="Hole ${i + 1} score" name="hole-${i}" type="number" min="1" max="30" step="1" value="${scores[i] ?? ""}" ${locked ? "disabled" : ""}></label>`).join("")}</div><div class="button-row">${!locked ? '<button class="outline" type="submit" value="draft">Save draft</button><button class="primary" type="submit" value="submit">Submit card</button>' : ""}${c && scorer() && c.status !== "Attested" ? button("Attest card", "attest", "outline") : ""}${c?.status === "Attested" && manager() ? button("Unlock card", "unlock", "outline") : ""}</div></form></section>`;
 }
 function teamLeaderboardView() {
   const standings = teamStandings(s, event());
@@ -1164,27 +1200,7 @@ function bind() {
           case "export-handicaps": {
             const records = s.cards
               .filter((c) => c.status === "Attested")
-              .map((c) => {
-                const r = s.rounds.find((r) => r.id === c.roundId),
-                  p = player(c.playerId),
-                  e = s.events.find((e) => e.id === r.eventId),
-                  cr = course(r.courseId);
-                return {
-                  player: p.name,
-                  playerEmail: p.email,
-                  format: e.format,
-                  date: r.date,
-                  course: cr?.name,
-                  tee: cr?.tee,
-                  pars: r.pars,
-                  strokeIndexes: r.indexes,
-                  grossScores: c.scores,
-                  holesPlayed: c.scores.filter((n) => n !== null).length,
-                  courseRating: cr?.rating,
-                  slope: cr?.slope,
-                  status: "Organiser-attested; not federation-posted",
-                };
-              });
+              .map((c) => attestedRoundRecord(s, c));
             download(
               "apexlinks-attested-rounds.json",
               JSON.stringify(records, null, 2),
@@ -1562,6 +1578,152 @@ function bind() {
           case "edit-player":
             playerDialog(player(id));
             break;
+          case "course-directory": {
+            const d = dialog(
+              "Worldwide course directory",
+              "<p>Search OpenStreetMap course locations. Coverage is incomplete; official slope/ratings and hole data must be supplied separately. No course is added until you enter and save its tee data.</p>" +
+                input("Course name search", "name", "", "search") +
+                input(
+                  "Country code (optional)",
+                  "country",
+                  "",
+                  "text",
+                  'maxlength="2" placeholder="GB, US, …"',
+                ) +
+                '<button type="button" class="primary" id="directory-search">Search directory</button><div id="directory-results" role="status"></div><p>© OpenStreetMap contributors · <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">ODbL attribution</a></p>',
+              null,
+              { wide: true },
+            );
+            const search = d.querySelector("#directory-search"),
+              results = d.querySelector("#directory-results");
+            search.onclick = async () => {
+              search.disabled = true;
+              results.textContent = "Searching course locations…";
+              try {
+                const form = new FormData(d.querySelector("form"));
+                const data = await api(
+                  endpoint("course-directory") +
+                    "?" +
+                    new URLSearchParams({
+                      name: form.get("name"),
+                      country: String(form.get("country")).toUpperCase(),
+                    }),
+                );
+                results.innerHTML =
+                  data.venues
+                    .map(
+                      (v, i) =>
+                        `<article class="notice"><h3>${esc(v.name)}</h3><p>${esc([v.location, v.country].filter(Boolean).join(", "))}</p><p>Slope and rating not supplied.</p><button type="button" class="outline" data-venue="${i}">Add tee data</button></article>`,
+                    )
+                    .join("") ||
+                  "No matching courses found. Try a different name or add course data manually.";
+                results.querySelectorAll("[data-venue]").forEach(
+                  (button) =>
+                    (button.onclick = () => {
+                      const venue = data.venues[Number(button.dataset.venue)];
+                      d.close();
+                      d.remove();
+                      courseDialog({
+                        ...venue,
+                        id: null,
+                        pars: Array(18).fill(null),
+                        indexes: Array(18).fill(null),
+                        lengths: Array(18).fill(null),
+                        rating: null,
+                        slope: null,
+                        tee: "",
+                      });
+                    }),
+                );
+              } catch (error) {
+                results.textContent = error.message;
+              } finally {
+                search.disabled = false;
+              }
+            };
+            break;
+          }
+          case "course-calculator": {
+            const tee = course(id);
+            const d = dialog(
+              "Course and playing handicap",
+              `<p>${esc(tee.name)} · ${esc(tee.tee)} · Rating ${tee.rating ?? "missing"} · Slope ${tee.slope ?? "missing"}. This preview does not change player or tournament handicaps.</p>` +
+                input(
+                  "Handicap index",
+                  "index",
+                  "",
+                  "number",
+                  'min="-10" max="54" step="0.1" required',
+                ) +
+                input(
+                  "Allowance (%)",
+                  "allowance",
+                  100,
+                  "number",
+                  'min="1" max="100" required',
+                ) +
+                '<p id="handicap-result" role="status"></p>',
+              null,
+            );
+            const calculate = () => {
+              try {
+                const form = new FormData(d.querySelector("form"));
+                if (!form.get("index")) return;
+                const result = calculateHandicap(
+                  Number(form.get("index")),
+                  tee,
+                  Number(form.get("allowance")),
+                );
+                d.querySelector("#handicap-result").textContent =
+                  `Course handicap: ${result.courseHandicap} · Playing handicap: ${result.playingHandicap}`;
+              } catch (error) {
+                d.querySelector("#handicap-result").textContent = error.message;
+              }
+            };
+            d.querySelectorAll("input").forEach(
+              (input) => (input.oninput = calculate),
+            );
+            break;
+          }
+          case "export-courses":
+            download(
+              "apexlinks-course-tees.json",
+              JSON.stringify(
+                s.courses.map(({ id, ...c }) => c),
+                null,
+                2,
+              ),
+              "application/json",
+            );
+            break;
+          case "import-courses": {
+            const d = dialog(
+              "Import course tee sets",
+              '<p>Choose a CSV/JSON file or paste data below. Import 1–100 tee sets, up to 95 KB. All rows are validated before saving. Rating sources remain organiser-provided.</p><button type="button" class="outline" id="course-template">Download CSV template</button><label>Course data file<input id="course-import-file" type="file" accept=".csv,.json,text/csv,application/json"></label><label>Course tee sets JSON or CSV<textarea name="courses" rows="10" maxlength="95000" required>[]</textarea></label>',
+              async (form) =>
+                write("course-import", {
+                  courses: parseCourseImport(form.get("courses")),
+                }),
+              { wide: true },
+            );
+            d.querySelector("#course-template").onclick = () =>
+              downloadCSV("apexlinks-course-template.csv", [courseCSVColumns]);
+            d.querySelector("#course-import-file").onchange = async (event) => {
+              const file = event.target.files[0];
+              if (!file) return;
+              try {
+                if (file.size > 95000)
+                  throw Error("Split files into batches no larger than 95 KB.");
+                const content = await file.text();
+                parseCourseImport(content);
+                d.querySelector('[name="courses"]').value = content;
+                d.querySelector(".form-error").textContent = "";
+              } catch (error) {
+                d.querySelector(".form-error").textContent = error.message;
+              }
+            };
+            break;
+          }
           case "new-course":
             courseDialog();
             break;
@@ -2122,6 +2284,7 @@ function bind() {
                 "Net",
                 "To par",
                 "Stableford",
+                "Bogey / Par",
               ],
               ...rows.map((r) => [
                 r.position ?? "",
@@ -2134,6 +2297,7 @@ function bind() {
                 r.net,
                 r.toPar,
                 r.points,
+                r.bogey ?? "",
               ]),
             ]);
             break;
@@ -2325,11 +2489,19 @@ function spectatorTable(d) {
         .join(""),
     );
   return table(
-    ["POS", "PLAYER", "DIVISION", "THRU", "GROSS", "NET", "POINTS"],
+    [
+      "POS",
+      "PLAYER",
+      "DIVISION",
+      "THRU",
+      "GROSS",
+      "NET",
+      d.event.format === "Bogey / Par" ? "BOGEY / PAR" : "POINTS",
+    ],
     d.rows
       .map(
         (r) =>
-          `<tr><td>${r.position ?? (r.status !== "Registered" ? esc(r.status) : "—")}</td><td>${esc(r.name)}</td><td>${esc(r.division)}</td><td>${r.thru}</td><td>${r.thru ? r.gross : "—"}</td><td>${r.thru ? r.net : "—"}</td><td>${r.points}</td></tr>`,
+          `<tr><td>${r.position ?? (r.status !== "Registered" ? esc(r.status) : "—")}</td><td>${esc(r.name)}</td><td>${esc(r.division)}</td><td>${r.thru}</td><td>${r.thru ? r.gross : "—"}</td><td>${r.thru ? r.net : "—"}</td><td>${d.event.format === "Bogey / Par" ? label(r.bogey) : r.points}</td></tr>`,
       )
       .join(""),
   );
