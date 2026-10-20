@@ -6,3 +6,5 @@ data/
 *.sqlite-wal
 .env
 .env.*
+__pycache__/
+*.pyc

@@ -99,3 +99,26 @@ Local name search ignores letter case and accents. Country filters retain venues
 The worldwide directory automatically searches after a 1.7-second typing pause (three characters minimum). Enter or Search directory runs a search immediately. Downloaded locations and cached searches are used before contacting Overpass. New input cancels the old browser request; stale responses cannot replace newer results. Provider requests have a nine-second deadline; the browser stops waiting after twelve seconds and offers a retry. Public Overpass availability and coverage are not guaranteed. A country code helps narrow the search.
 
 The first result displays an interactive OpenStreetMap embed; View map switches to another result. Entries without coordinates show an explicit message. Open full map offers an external alternative if an embedded map is blocked. This requires access to www.openstreetmap.org and its map infrastructure; the server CSP explicitly permits only that external frame host. Maps are never cached for offline use by the service worker. Browser checks mock the external map and directory, so they do not establish live provider availability. No API key is required. Maps and course suggestions do not supply official ratings.
+
+## Bulk files instead of Overpass (version 0.9.3)
+
+The optional operator tool uses Geofabrik's regional OpenStreetMap `.osm.pbf` files. It does not query Overpass or scrape a third-party course directory. The source catalogue is `https://download.geofabrik.de/index-v1.json`. Selection uses leaf extracts rather than downloading both parents and their children. `world` processes every usable leaf extract advertised by that catalogue; this does not guarantee every real-world course, complete planet coverage, or complete official tee data.
+
+Run on an operator machine with Python 3, Node 24, network access to `download.geofabrik.de`, and substantial temporary disk space. It downloads one region at a time, requires processing headroom, and removes temporary files afterward. Large worldwide imports are a background operator job, not a browser request. The web **Download open course directory** button still uses the separate resumable Overpass loader.
+
+```sh
+python3 -m venv /tmp/apex-course-tools
+/tmp/apex-course-tools/bin/python -m pip install -r scripts/course-tools-requirements.txt
+COURSE_PYTHON=/tmp/apex-course-tools/bin/python npm run test:bulk-courses
+COURSE_PYTHON=/tmp/apex-course-tools/bin/python npm run import:geofabrik -- world
+```
+
+Set `DATABASE_PATH` to the intended SQLite database; it defaults to `data/apexlinks.sqlite`. Importing into a local database does not update Render's database. On a production worker, use the correct persistent database and coordinate access; do not replace a live SQLite database file. Python tooling is optional and is not a new web-app runtime requirement. The command does not install Python or pyosmium on Render automatically.
+
+A specific catalogue region ID can replace `world`. Completed region IDs are checkpointed in the database. Rerun the same command to resume; use `world --refresh` for a deliberate full refresh of already saved regions. Run one bulk worker per database at a time. PBF files are verified against the source's MD5 checksums over HTTPS before parsing. Missing/invalid checksums, insufficient disk, corrupt downloads or parse errors stop the import and retain previous regions. Geometry is reduced to named `leisure=golf_course` features and their references before calculating approximate bounding-box centres. Distinct OSM IDs may still describe the same real-world venue; ID upserts prevent duplicate records for the same OSM feature, not every semantic duplicate.
+
+The app retains OpenStreetMap attribution and ODbL source links. If distributing the resulting database or a derived extract, comply with the applicable [ODbL](https://opendatacommons.org/licenses/odbl/) obligations. No rating, slope, par or stroke-index values are invented from geographic data.
+
+FreeGolfTracker was suggested as an alternative, but this environment could not retrieve its pages to verify a bulk export or reuse licence. Its publicly visible directory has not been treated as permission to copy its database. No FreeGolfTracker data has been copied.
+
+The cloud network configuration additions for FreeGolfTracker, Geofabrik and OSM were saved for review. They have not been confirmed applied. Real source downloads remain blocked by the network proxy; tests use fictional PBF fixtures and mocked HTTP. Tests exercise node/way/nested-relation locations, checksum rejection, checkpoint resumption, deduplication and SQLite persistence. They do not establish a populated worldwide production directory.

@@ -198,3 +198,7 @@ Course locations appear automatically after a typing pause, with immediate Enter
 ### v0.9.2 — resumable regional course downloads
 
 The web downloader now saves bounded regions individually instead of waiting for one worldwide response. It tries two public Overpass providers, displays saved-region progress, and resumes the failed region after a one-minute cooldown while retaining all saved locations. This improves failure recovery; successful real-provider access from Render remains unverified.
+
+### v0.9.3 — optional worldwide bulk-file importer
+
+An operator can use `npm run import:geofabrik -- world` with the optional Python tools to process Geofabrik's OpenStreetMap extracts instead of relying on public Overpass queries. The importer verifies downloads, checkpoints saved regions, retains attribution and never invents tee ratings. See [setup and source limitations](docs/COURSE_DATA.md#bulk-files-instead-of-overpass-version-093). No real worldwide records have been downloaded or installed in Render: access to the source domains still requires applying the pending cloud network settings.

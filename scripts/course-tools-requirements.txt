@@ -1,0 +1,2 @@
+# Optional bulk-file tooling; not required by the web app.
+osmium==4.3.2
