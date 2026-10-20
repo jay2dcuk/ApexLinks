@@ -1640,7 +1640,12 @@ function bind() {
               const poll = async () => {
                 try {
                   const job = await api(endpoint("course-directory/download"));
-                  status.textContent = `${job.status} · ${job.total || 0} stored locations${job.error ? " · " + job.error : ""}`;
+                  status.textContent = `${job.status} · ${job.total || 0} stored locations${job.plannedRegions ? ` · ${job.completedRegions || 0}/${job.plannedRegions} regions saved` : ""}${job.error ? " · " + job.error : ""}`;
+                  start.textContent = ["Failed", "Interrupted"].includes(
+                    job.status,
+                  )
+                    ? "Resume open course download"
+                    : "Download open course directory";
                   start.disabled = ["Downloading", "Importing"].includes(
                     job.status,
                   );

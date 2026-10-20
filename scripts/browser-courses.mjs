@@ -13,6 +13,8 @@ const server = createApp({
   secure: false,
   demoPassword: password,
   directoryOptions: {
+    regions: [[49, -11, 61, 3]],
+    downloadDelay: 0,
     fetcher: async () => {
       const data = {
         elements: [

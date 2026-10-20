@@ -194,3 +194,7 @@ Run `npm run test:browser:courses` for the course-directory, CSV upload, Bogey t
 ### v0.9.1 — course search and maps
 
 Course locations appear automatically after a typing pause, with immediate Enter/button searches, cancelled stale requests, bounded waits and explicit errors. Results include a selectable OpenStreetMap map and an external map fallback. Downloaded/catalogued locations remain the first search source. These improvements do not constitute complete Golf Genius parity: official worldwide ratings, approved live federation access, nine-hole play and remaining mixed-tee/team rules are still outstanding.
+
+### v0.9.2 — resumable regional course downloads
+
+The web downloader now saves bounded regions individually instead of waiting for one worldwide response. It tries two public Overpass providers, displays saved-region progress, and resumes the failed region after a one-minute cooldown while retaining all saved locations. This improves failure recovery; successful real-provider access from Render remains unverified.

@@ -70,11 +70,13 @@ Attested exports use the player’s captured tee, rather than mutable current co
 
 Nine-hole/short-course ratings, automatic federation verification and full worldwide supplier synchronisation remain outstanding. No complete worldwide dataset is currently populated.
 
-## Open-data download (version 0.9)
+## Open-data download (version 0.9.2)
 
 A club administrator can use **Courses → Worldwide directory → Download open course directory**. This starts a background download of named golf-course locations mapped in OpenStreetMap, with visible Downloading/Importing/Completed/Failed status. It populates the shared venue directory, which is searched locally before the live provider. Existing scoring tee sets and historical scores are preserved. A successful job reports the actual stored count; it does not claim complete real-world coverage.
 
-The web loader allows a 32 MB response, validates the Overpass export and imports in bounded SQLite transactions. Full downloads have a ten-minute retry cooldown and a 24-hour cooldown after success. Interrupted/failed imports retain valid existing records. Both public mirrors tried in the development environment returned HTTP 403, so a real worldwide download has not been verified here or on Render. The app reports network failures instead of populating fictional courses. Automated tests cover the download workflow with mocked data only.
+The web loader starts with Britain/Ireland, then covers the world in 30-degree regions (73 requests, including the overlapping first region). Each region has a 35-second request deadline, a 32 MB response limit and a fallback to a second public Overpass provider. Successful regions are validated and committed immediately; duplicate OpenStreetMap IDs are updated rather than duplicated. Empty ocean regions are recorded as complete. A one-second pause separates regions. The UI displays unique stored locations and saved-region progress.
+
+Failed or interrupted jobs can be resumed after one minute using **Resume open course download**. The next attempt starts with the failed region, preserving completed regions across app restarts; an old all-world timeout can be retried immediately after upgrading. Successful complete downloads have a 24-hour cooldown. Larger/slow regions can still fail on public infrastructure: resumption preserves progress but cannot guarantee provider availability. The development network proxy blocks public Overpass access with HTTP 403 (including a small regional probe), so a real download has not been verified here or on Render. This proxy restriction does not establish whether Render can reach the providers. The app reports network failures instead of populating fictional courses. Automated tests cover the download workflow with mocked data only.
 
 For an operator with shell access, run against the same persistent `DATABASE_PATH` as the app:
 
