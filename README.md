@@ -190,3 +190,7 @@ See [docs/COURSE_DATA.md](docs/COURSE_DATA.md) for schemas and worldwide coverag
 - Organisers can inspect each golfer’s counted/dropped results, export a restricted standings CSV, finalise a season to freeze its table and reopen it with a recorded reason. Reopened tournaments disappear from live season totals until completed again. A finalised season remains frozen until deliberately reopened. Reopening notes remain staff-only. Team/match-play season points and public unauthenticated season links are not implemented.
 
 Run `npm run test:browser:courses` for the course-directory, CSV upload, Bogey tournament lifecycle, season finalisation/reopening and viewer-permission workflow. Tests use fictional data and mocked external requests.
+
+### v0.9.1 — course search and maps
+
+Course locations appear automatically after a typing pause, with immediate Enter/button searches, cancelled stale requests, bounded waits and explicit errors. Results include a selectable OpenStreetMap map and an external map fallback. Downloaded/catalogued locations remain the first search source. These improvements do not constitute complete Golf Genius parity: official worldwide ratings, approved live federation access, nine-hole play and remaining mixed-tee/team rules are still outstanding.

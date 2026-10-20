@@ -50,6 +50,10 @@ const browser = await chromium.launch({
 page.on("pageerror", (e) => errors.push(e.message));
 page.on("dialog", (dialog) => dialog.accept());
 try {
+  // Map content is mocked: this verifies embedding and CSP without external requests.
+  await page.route("https://www.openstreetmap.org/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "<p>Fixture map</p>" }),
+  );
   await page.goto(base);
   await page.getByLabel("Email address").fill("club@demo.apexlinks.test");
   await page.getByLabel("Password", { exact: true }).fill(password);
@@ -73,9 +77,48 @@ try {
     .waitFor();
   await page.getByLabel("Course name search").fill("Fictional");
   await page.getByLabel("Country code (optional)").fill("GB");
+  // Suggestions arrive without pressing Search.
+  await page
+    .getByRole("heading", { name: "Fictional Test Links", exact: true })
+    .waitFor();
+  const frameURL = new URL(
+    await page.locator(".directory-map iframe").getAttribute("src"),
+  );
+  assert.equal(frameURL.origin, "https://www.openstreetmap.org");
+  assert.equal(frameURL.searchParams.get("marker"), "56,-3");
+  await page
+    .getByRole("link", { name: "Open full map", exact: true })
+    .waitFor();
+  const failedQuery = "**/api/orgs/*/course-directory?*";
+  await page.route(failedQuery, (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: "Fixture directory unavailable. Retry shortly.",
+      }),
+    }),
+  );
   await page
     .getByRole("button", { name: "Search directory", exact: true })
     .click();
+  await page
+    .getByText("Fixture directory unavailable. Retry shortly.", { exact: true })
+    .waitFor();
+  await page.unroute(failedQuery);
+  let stalled;
+  await page.route(failedQuery, (route) => {
+    stalled = route;
+  });
+  await page
+    .getByRole("button", { name: "Search directory", exact: true })
+    .click();
+  await page
+    .getByText("Search timed out.", { exact: false })
+    .waitFor({ timeout: 16000 });
+  await page.unroute(failedQuery);
+  await stalled.abort().catch(() => {});
+  await page.getByLabel("Course name search").press("Enter");
   await page
     .getByRole("heading", { name: "Fictional Test Links", exact: true })
     .waitFor();
@@ -354,7 +397,7 @@ try {
   await viewerContext.close();
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: mocked global directory, blank ratings, tee persistence/provenance, handicap calculator/import/export, completed Bogey/Par tournament, spectator standings, open-directory download and season finalise/reopen/export. No live directory or real course ratings assumed.",
+    "PASS: automatic suggestions, embedded map, remote failure and stalled-request recovery, mocked global directory, blank ratings, tee persistence/provenance, handicap calculator/import/export, completed Bogey/Par tournament, spectator standings, open-directory download and season finalise/reopen/export. No live directory or real course ratings assumed.",
   );
 } finally {
   await browser.close();

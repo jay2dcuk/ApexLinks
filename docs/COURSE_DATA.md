@@ -40,9 +40,12 @@ Use Courses → Import tee sets, choose a `.json` file, or paste an array. Impor
     "sourceURL": "https://example.com/replace-with-rating-source",
     "ratingAsOf": "2026-10-01",
     "lengthUnit": "yards",
-    "lengths": [350,350,350,350,350,350,350,350,350,350,350,350,350,350,350,350,350,350],
-    "pars": [4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4],
-    "indexes": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]
+    "lengths": [
+      350, 350, 350, 350, 350, 350, 350, 350, 350, 350, 350, 350, 350, 350, 350,
+      350, 350, 350
+    ],
+    "pars": [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],
+    "indexes": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
   }
 ]
 ```
@@ -88,3 +91,9 @@ npm run import:open-courses -- /path/to/overpass-golf-courses.json
 The file must contain an `elements` array with named node/way/relation features tagged `leisure=golf_course`. Re-imports update the same OpenStreetMap feature IDs without duplicating them. The importer was exercised with a temporary fixture database, including a repeated import; no real worldwide dataset was seeded during development. Respect the public provider’s usage policy and use regional exports when a global request is unavailable or too large.
 
 Local name search ignores letter case and accents. Country filters retain venues with unknown country because many OpenStreetMap course records lack an explicit country tag. Review the selected location before entering tee data. Imported locations retain OpenStreetMap attribution and contain null rating/slope values. Pars, stroke indexes and official tee-rating values must still be supplied from an appropriate source; a course location alone is not a playable scorecard.
+
+## Directory search and maps
+
+The worldwide directory automatically searches after a 1.7-second typing pause (three characters minimum). Enter or Search directory runs a search immediately. Downloaded locations and cached searches are used before contacting Overpass. New input cancels the old browser request; stale responses cannot replace newer results. Provider requests have a nine-second deadline; the browser stops waiting after twelve seconds and offers a retry. Public Overpass availability and coverage are not guaranteed. A country code helps narrow the search.
+
+The first result displays an interactive OpenStreetMap embed; View map switches to another result. Entries without coordinates show an explicit message. Open full map offers an external alternative if an embedded map is blocked. This requires access to www.openstreetmap.org and its map infrastructure; the server CSP explicitly permits only that external frame host. Maps are never cached for offline use by the service worker. Browser checks mock the external map and directory, so they do not establish live provider availability. No API key is required. Maps and course suggestions do not supply official ratings.

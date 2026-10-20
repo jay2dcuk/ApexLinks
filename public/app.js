@@ -1,3 +1,4 @@
+import { bindCourseDirectory } from "./course-directory-ui.js";
 import { seasonsView, seasonAction } from "./seasons-ui.js";
 import { parseCourseImport, courseCSVColumns } from "./course-import.js";
 import { calculateHandicap, attestedRoundRecord } from "./courses.js";
@@ -110,7 +111,7 @@ function toast(message) {
   clearTimeout(window.toastTimer);
   window.toastTimer = setTimeout(() => t.classList.remove("visible"), 5500);
 }
-async function api(path, method = "GET", body) {
+async function api(path, method = "GET", body, { signal } = {}) {
   if (method !== "GET" && !csrf && me && navigator.onLine) {
     const auth = await (await fetch("/api/auth/me")).json();
     if (auth.user?.id !== me.id)
@@ -118,6 +119,7 @@ async function api(path, method = "GET", body) {
     csrf = auth.csrf;
   }
   const res = await fetch("/api/" + path, {
+    signal,
     method,
     headers: {
       "Content-Type": "application/json",
@@ -1674,54 +1676,24 @@ function bind() {
               });
               poll();
             }
-            const search = d.querySelector("#directory-search"),
-              results = d.querySelector("#directory-results");
-            search.onclick = async () => {
-              search.disabled = true;
-              results.textContent = "Searching course locations…";
-              try {
-                const form = new FormData(d.querySelector("form"));
-                const data = await api(
-                  endpoint("course-directory") +
-                    "?" +
-                    new URLSearchParams({
-                      name: form.get("name"),
-                      country: String(form.get("country")).toUpperCase(),
-                    }),
-                );
-                results.innerHTML =
-                  `<p>${esc(data.coverage)}</p>` +
-                  (data.venues
-                    .map(
-                      (v, i) =>
-                        `<article class="notice"><h3>${esc(v.name)}</h3><p>${esc([v.location, v.country].filter(Boolean).join(", "))}</p><p>Slope and rating not supplied.</p><button type="button" class="outline" data-venue="${i}">Add tee data</button></article>`,
-                    )
-                    .join("") ||
-                    "No matching courses found. Try a different name or add course data manually.");
-                results.querySelectorAll("[data-venue]").forEach(
-                  (button) =>
-                    (button.onclick = () => {
-                      const venue = data.venues[Number(button.dataset.venue)];
-                      d.close();
-                      d.remove();
-                      courseDialog({
-                        ...venue,
-                        id: null,
-                        pars: Array(18).fill(null),
-                        indexes: Array(18).fill(null),
-                        lengths: Array(18).fill(null),
-                        rating: null,
-                        slope: null,
-                        tee: "",
-                      });
-                    }),
-                );
-              } catch (error) {
-                results.textContent = error.message;
-              } finally {
-                search.disabled = false;
-              }
-            };
+            bindCourseDirectory(d, {
+              api,
+              path: endpoint("course-directory"),
+              esc,
+              onAdd(venue) {
+                d.close();
+                courseDialog({
+                  ...venue,
+                  id: null,
+                  pars: Array(18).fill(null),
+                  indexes: Array(18).fill(null),
+                  lengths: Array(18).fill(null),
+                  rating: null,
+                  slope: null,
+                  tee: "",
+                });
+              },
+            });
             break;
           }
           case "course-calculator": {

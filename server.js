@@ -44,7 +44,7 @@ export function createApp({
     res.setHeader("X-Frame-Options", "SAMEORIGIN");
     res.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'",
+      "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src https://www.openstreetmap.org; frame-ancestors 'self'; base-uri 'none'; form-action 'self'",
     );
     let url;
     try {
