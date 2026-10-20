@@ -1,6 +1,6 @@
 {
   "name": "apexlinks",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,8 @@
     "demo:disable": "node scripts/disable-demo.mjs",
     "test:browser:operations": "node scripts/browser-operations.mjs",
     "test:browser:finance": "node scripts/browser-finance.mjs",
-    "test:browser:courses": "node scripts/browser-courses.mjs"
+    "test:browser:courses": "node scripts/browser-courses.mjs",
+    "import:open-courses": "node scripts/import-open-courses.mjs"
   },
   "engines": {
     "node": ">=24"

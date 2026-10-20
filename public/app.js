@@ -1,3 +1,4 @@
+import { seasonsView, seasonAction } from "./seasons-ui.js";
 import { parseCourseImport, courseCSVColumns } from "./course-import.js";
 import { calculateHandicap, attestedRoundRecord } from "./courses.js";
 import {
@@ -71,6 +72,7 @@ let me = null,
   roundId = "",
   playerId = "",
   selectedTeam = "",
+  selectedSeasonId = "",
   query = "",
   rows = [],
   teams = [],
@@ -80,6 +82,7 @@ let me = null,
 const nav = {
   Overview: "▦",
   Tournaments: "⚑",
+  Seasons: "♜",
   Players: "♙",
   Courses: "◇",
   Bookings: "▤",
@@ -619,13 +622,15 @@ function opsHelpers() {
 }
 function render() {
   if (!me || !s) return renderAuth();
+  s.seasons ||= [];
+  s.seasonEvents ||= [];
   const names = Object.keys(nav).filter(
     (n) =>
       (n !== "Campaigns" || manager()) &&
       (manager() || org.role === "player" || !["Finance"].includes(n)),
   );
   document.querySelector("#app").innerHTML =
-    `<aside class="sidebar"><a class="brand" href="/"> <span class="brand-symbol">A</span>ApexLinks<span class="brand-dot">.</span></a><label class="org-switch">Workspace<select id="org-picker">${orgs.map((o) => `<option value="${o.id}" ${o.id === org.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></label><div class="nav-label">WORKSPACE</div><nav>${names.map((n) => `<button class="nav-item ${page === n || (page === "Tournament" && n === "Tournaments") ? "selected" : ""}" data-page="${n}"><span>${nav[n]}</span>${n}${n === "Inbox" && s.messages.filter((m) => !s.receipts.some((r) => r.messageId === m.id && r.userId === me.id)).length ? '<b class="nav-count">' + s.messages.filter((m) => !s.receipts.some((r) => r.messageId === m.id && r.userId === me.id)).length + "</b>" : ""}</button>`).join("")}</nav><div class="sidebar-bottom"><div class="account"><span class="avatar">${initials(me.name)}</span><div><strong>${esc(me.name)}</strong><small>${esc(org.role)}</small></div></div></div></aside><div class="main-shell"><header><div class="breadcrumb">${esc(org.name)} <span>/</span><strong>${page}</strong></div><div class="top-tools"><label class="search"><span>⌕</span><input id="search" aria-label="Search" placeholder="Search tournaments or players…" value="${esc(query)}"></label>${button("Sign out", "logout", "text-button")}</div></header><main>${offlineSession ? '<div class="warning-banner">Offline workspace — cached data may be out of date. Score changes queue on this device and must be synced after reconnecting.</div>' : ""}${me && readQueue(me.id).length ? `<div class="warning-banner">${readQueue(me.id).length} scorecard draft(s) saved on this device, waiting to sync. ${button("Review queued scores", "score-queue", "outline")}</div>` : ""}${config.storage === "ephemeral" ? '<div class="warning-banner">Render storage is temporary. Your data can disappear on redeploy or restart. Attach a persistent disk before adding real data.</div>' : ""}${page === "Overview" ? overview() : page === "Tournaments" ? tournaments() : page === "Tournament" ? tournament() : page === "Players" ? playersView() : page === "Courses" ? coursesView() : page === "Bookings" ? bookingsView() : page === "Memberships" ? membershipsView() : page === "Finance" ? financeView() : page === "Reports" ? reportsView() + reportsExtension(opsContext(), opsHelpers()) : page === "Operations" ? operationsView(opsContext(), opsHelpers()) : page === "Inbox" ? inboxView(opsContext(), opsHelpers()) : page === "Campaigns" ? campaignsView() : page === "Handicaps" ? handicapsView() : settingsView()}<footer><span>APEXLINKS · Golf, beautifully organised.</span><span>Server saved · ${esc(org.name)}</span></footer></main></div>`;
+    `<aside class="sidebar"><a class="brand" href="/"> <span class="brand-symbol">A</span>ApexLinks<span class="brand-dot">.</span></a><label class="org-switch">Workspace<select id="org-picker">${orgs.map((o) => `<option value="${o.id}" ${o.id === org.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></label><div class="nav-label">WORKSPACE</div><nav>${names.map((n) => `<button class="nav-item ${page === n || (page === "Tournament" && n === "Tournaments") ? "selected" : ""}" data-page="${n}"><span>${nav[n]}</span>${n}${n === "Inbox" && s.messages.filter((m) => !s.receipts.some((r) => r.messageId === m.id && r.userId === me.id)).length ? '<b class="nav-count">' + s.messages.filter((m) => !s.receipts.some((r) => r.messageId === m.id && r.userId === me.id)).length + "</b>" : ""}</button>`).join("")}</nav><div class="sidebar-bottom"><div class="account"><span class="avatar">${initials(me.name)}</span><div><strong>${esc(me.name)}</strong><small>${esc(org.role)}</small></div></div></div></aside><div class="main-shell"><header><div class="breadcrumb">${esc(org.name)} <span>/</span><strong>${page}</strong></div><div class="top-tools"><label class="search"><span>⌕</span><input id="search" aria-label="Search" placeholder="Search tournaments or players…" value="${esc(query)}"></label>${button("Sign out", "logout", "text-button")}</div></header><main>${offlineSession ? '<div class="warning-banner">Offline workspace — cached data may be out of date. Score changes queue on this device and must be synced after reconnecting.</div>' : ""}${me && readQueue(me.id).length ? `<div class="warning-banner">${readQueue(me.id).length} scorecard draft(s) saved on this device, waiting to sync. ${button("Review queued scores", "score-queue", "outline")}</div>` : ""}${config.storage === "ephemeral" ? '<div class="warning-banner">Render storage is temporary. Your data can disappear on redeploy or restart. Attach a persistent disk before adding real data.</div>' : ""}${page === "Overview" ? overview() : page === "Tournaments" ? tournaments() : page === "Tournament" ? tournament() : page === "Players" ? playersView() : page === "Seasons" ? seasonsView({ s, org, selectedSeasonId }, opsHelpers()) : page === "Courses" ? coursesView() : page === "Bookings" ? bookingsView() : page === "Memberships" ? membershipsView() : page === "Finance" ? financeView() : page === "Reports" ? reportsView() + reportsExtension(opsContext(), opsHelpers()) : page === "Operations" ? operationsView(opsContext(), opsHelpers()) : page === "Inbox" ? inboxView(opsContext(), opsHelpers()) : page === "Campaigns" ? campaignsView() : page === "Handicaps" ? handicapsView() : settingsView()}<footer><span>APEXLINKS · Golf, beautifully organised.</span><span>Server saved · ${esc(org.name)}</span></footer></main></div>`;
   bind();
 }
 function dialog(title, content, save, { wide = false, submit = "Save" } = {}) {
@@ -1000,13 +1005,22 @@ function queueDialog() {
     (btn) =>
       (btn.onclick = action(async () => {
         const q = queue[Number(btn.dataset.sync)];
+        let saved = false;
         try {
           await api(`orgs/${q.orgId}/${q.path}`, "POST", q.body);
+          saved = true;
           removeQueued(me.id, q.key);
-          d.close();
           await refresh();
+          d.close();
           toast("Queued scorecard synced.");
         } catch (err) {
+          if (saved) {
+            d.close();
+            toast(
+              "Your scorecard was saved on the server. Reload to refresh this view.",
+            );
+            return;
+          }
           d.querySelector(
             `[data-queue-error="${btn.dataset.sync}"]`,
           ).textContent =
@@ -1028,6 +1042,12 @@ function queueDialog() {
 }
 
 function bind() {
+  document
+    .querySelector("#season-picker")
+    ?.addEventListener("change", (event) => {
+      selectedSeasonId = event.target.value;
+      render();
+    });
   document.querySelectorAll("[data-page]").forEach(
     (b) =>
       (b.onclick = action(async () => {
@@ -1166,6 +1186,20 @@ function bind() {
     (b) =>
       (b.onclick = action(async () => {
         const id = b.dataset.id;
+        if (
+          await seasonAction(
+            b.dataset.action,
+            id,
+            { s, org },
+            {
+              ...opsHelpers(),
+              setSeason: (value) => {
+                selectedSeasonId = value;
+              },
+            },
+          )
+        )
+          return;
         if (
           await operationsAction(
             b.dataset.action,
@@ -1594,6 +1628,52 @@ function bind() {
               null,
               { wide: true },
             );
+            if (org.role === "admin") {
+              const controls = document.createElement("div");
+              controls.innerHTML =
+                '<button type="button" class="outline" id="download-open-directory">Download open course directory</button><p id="download-open-status" role="status"></p>';
+              d.querySelector("form").append(controls);
+              const start = controls.querySelector("button"),
+                status = controls.querySelector("p");
+              const poll = async () => {
+                try {
+                  const job = await api(endpoint("course-directory/download"));
+                  status.textContent = `${job.status} · ${job.total || 0} stored locations${job.error ? " · " + job.error : ""}`;
+                  start.disabled = ["Downloading", "Importing"].includes(
+                    job.status,
+                  );
+                } catch (error) {
+                  status.textContent = error.message;
+                }
+              };
+              start.onclick = async () => {
+                if (
+                  !confirm(
+                    "Download openly licensed OpenStreetMap course locations? This may take several minutes. Official tee ratings are not included.",
+                  )
+                )
+                  return;
+                start.disabled = true;
+                try {
+                  await api(endpoint("course-directory/download"), "POST", {});
+                  await poll();
+                } catch (error) {
+                  status.textContent = error.message;
+                  start.disabled = false;
+                }
+              };
+              const timer = setInterval(() => {
+                if (!d.isConnected) {
+                  clearInterval(timer);
+                  return;
+                }
+                poll();
+              }, 3000);
+              d.addEventListener("close", () => clearInterval(timer), {
+                once: true,
+              });
+              poll();
+            }
             const search = d.querySelector("#directory-search"),
               results = d.querySelector("#directory-results");
             search.onclick = async () => {
@@ -1610,13 +1690,14 @@ function bind() {
                     }),
                 );
                 results.innerHTML =
-                  data.venues
+                  `<p>${esc(data.coverage)}</p>` +
+                  (data.venues
                     .map(
                       (v, i) =>
                         `<article class="notice"><h3>${esc(v.name)}</h3><p>${esc([v.location, v.country].filter(Boolean).join(", "))}</p><p>Slope and rating not supplied.</p><button type="button" class="outline" data-venue="${i}">Add tee data</button></article>`,
                     )
                     .join("") ||
-                  "No matching courses found. Try a different name or add course data manually.";
+                    "No matching courses found. Try a different name or add course data manually.");
                 results.querySelectorAll("[data-venue]").forEach(
                   (button) =>
                     (button.onclick = () => {
@@ -2534,7 +2615,12 @@ window.addEventListener("online", async () => {
     }
     csrf = auth.csrf;
     offlineSession = false;
-    if (!dirty) await refresh();
+    if (
+      !dirty &&
+      !document.querySelector("dialog") &&
+      !(page === "Tournament" && tab === "Scoring")
+    )
+      await refresh();
     if (readQueue(me.id).length)
       toast("Online again. Review queued scores to sync safely.");
   } catch {}

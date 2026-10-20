@@ -143,8 +143,28 @@ try {
   await p.getByRole("button", { name: "Review queued scores" }).waitFor();
   await ctx.setOffline(false);
   await p.getByRole("button", { name: "Review queued scores" }).click();
+  let releaseState, stateRequested;
+  const stateHeld = new Promise((resolve) => {
+    releaseState = resolve;
+  });
+  const stateStarted = new Promise((resolve) => {
+    stateRequested = resolve;
+  });
+  await p.route("**/api/orgs/*/state", async (route) => {
+    stateRequested();
+    await stateHeld;
+    await route.continue();
+  });
   await p.getByRole("button", { name: "Sync card", exact: true }).click();
+  await stateStarted;
+  assert.equal(
+    await p.locator("dialog").count(),
+    1,
+    "Sync dialog stays open until refreshed scores are ready.",
+  );
+  releaseState();
   await p.locator("dialog").waitFor({ state: "detached" });
+  await p.unroute("**/api/orgs/*/state");
   assert.equal(
     await p
       .getByRole("spinbutton", { name: "Hole 1 score", exact: true })

@@ -13,23 +13,28 @@ const server = createApp({
   secure: false,
   demoPassword: password,
   directoryOptions: {
-    fetcher: async () => ({
-      ok: true,
-      json: async () => ({
+    fetcher: async () => {
+      const data = {
         elements: [
           {
             type: "way",
             id: 123,
             tags: {
               name: "Fictional Test Links",
+              leisure: "golf_course",
               "addr:city": "Testtown",
               "addr:country": "GB",
             },
             center: { lat: 56, lon: -3 },
           },
         ],
-      }),
-    }),
+      };
+      return {
+        ok: true,
+        json: async () => data,
+        text: async () => JSON.stringify(data),
+      };
+    },
   },
 });
 server.listen(0, "127.0.0.1");
@@ -43,6 +48,7 @@ const browser = await chromium.launch({
   page = await context.newPage(),
   errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
+page.on("dialog", (dialog) => dialog.accept());
 try {
   await page.goto(base);
   await page.getByLabel("Email address").fill("club@demo.apexlinks.test");
@@ -55,6 +61,16 @@ try {
   await page
     .getByRole("button", { name: "Worldwide directory", exact: true })
     .click();
+  await page
+    .getByRole("button", {
+      name: "Download open course directory",
+      exact: true,
+    })
+    .click();
+  await page
+    .locator("#download-open-status")
+    .filter({ hasText: "Completed · 1 stored locations" })
+    .waitFor();
   await page.getByLabel("Course name search").fill("Fictional");
   await page.getByLabel("Country code (optional)").fill("GB");
   await page
@@ -155,13 +171,11 @@ try {
         (key) => '"' + String(csvData[key] ?? "").replaceAll('"', '""') + '"',
       )
       .join(",");
-  await page
-    .getByLabel("Course data file", { exact: true })
-    .setInputFiles({
-      name: "courses.csv",
-      mimeType: "text/csv",
-      buffer: Buffer.from(csv),
-    });
+  await page.getByLabel("Course data file", { exact: true }).setInputFiles({
+    name: "courses.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(csv),
+  });
   await page.waitForFunction(() =>
     document
       .querySelector('dialog textarea[name="courses"]')
@@ -246,9 +260,101 @@ try {
     .getByRole("columnheader", { name: "BOGEY / PAR", exact: true })
     .waitFor();
   await page.getByRole("cell", { name: "+1", exact: true }).waitFor();
+  await page.goto(base);
+  await page
+    .getByRole("heading", { name: "A great day starts here." })
+    .waitFor();
+  await page.locator('nav [data-page="Seasons"]').click();
+  await page
+    .getByRole("button", { name: "Create season", exact: true })
+    .click();
+  await page
+    .getByLabel("Season name", { exact: true })
+    .fill("Fictional 2027 season");
+  await page.getByLabel("Start date", { exact: true }).fill("2027-01-01");
+  await page.getByLabel("End date", { exact: true }).fill("2027-12-31");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page
+    .getByRole("heading", { name: "Fictional 2027 season · Open", exact: true })
+    .waitFor();
+  await page
+    .getByRole("button", { name: "Link tournament", exact: true })
+    .click();
+  await page.locator('dialog select[name="eventId"]').selectOption(event.id);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("cell", { name: "100", exact: true }).waitFor();
+  await page
+    .getByRole("button", { name: "Finalise standings", exact: true })
+    .click();
+  await page
+    .getByRole("heading", {
+      name: "Fictional 2027 season · Final",
+      exact: true,
+    })
+    .waitFor();
+  const seasonDownload = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Export standings", exact: true })
+    .click();
+  assert.equal(
+    (await seasonDownload).suggestedFilename(),
+    "apexlinks-season-standings.csv",
+  );
+  await page
+    .getByRole("button", { name: "Reopen season", exact: true })
+    .click();
+  await page
+    .getByLabel("Reason for reopening", { exact: true })
+    .fill("Fixture correction check");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page
+    .getByRole("heading", { name: "Fictional 2027 season · Open", exact: true })
+    .waitFor();
+  const finalState = (
+      await (await page.request.get(`${base}/api/orgs/${orgId}/state`)).json()
+    ).state,
+    seasonId = finalState.seasons[0].id;
+  const viewerContext = await browser.newContext(),
+    viewer = await viewerContext.newPage();
+  await viewer.goto(base);
+  await viewer.getByLabel("Email address").fill("viewer@demo.apexlinks.test");
+  await viewer.getByLabel("Password", { exact: true }).fill(password);
+  await viewer.getByRole("button", { name: "Sign in →", exact: true }).click();
+  await viewer
+    .getByRole("heading", { name: "A great day starts here." })
+    .waitFor();
+  await viewer.locator('nav [data-page="Seasons"]').click();
+  await viewer
+    .getByRole("heading", { name: "Fictional 2027 season · Open", exact: true })
+    .waitFor();
+  assert.equal(
+    await viewer
+      .getByRole("button", { name: "Create season", exact: true })
+      .count(),
+    0,
+  );
+  const viewerAuth = await (
+    await viewer.request.get(base + "/api/auth/me")
+  ).json();
+  const refused = await viewer.request.post(
+    `${base}/api/orgs/${orgId}/course-directory/download`,
+    { headers: { "X-CSRF-Token": viewerAuth.csrf }, data: {} },
+  );
+  assert.equal(refused.status(), 403);
+  const seasonData = await (
+    await viewer.request.get(
+      `${base}/api/orgs/${orgId}/seasons/${seasonId}/standings`,
+    )
+  ).json();
+  assert.equal(Object.hasOwn(seasonData.season, "revisions"), false);
+  const viewerState = (
+    await (await viewer.request.get(`${base}/api/orgs/${orgId}/state`)).json()
+  ).state;
+  assert.equal(Object.hasOwn(viewerState.seasons[0], "revisions"), false);
+  await viewerContext.close();
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: mocked global directory, blank ratings, tee persistence/provenance, handicap calculator/import/export, completed Bogey/Par tournament and spectator standings. No live directory or real course ratings assumed.",
+    "PASS: mocked global directory, blank ratings, tee persistence/provenance, handicap calculator/import/export, completed Bogey/Par tournament, spectator standings, open-directory download and season finalise/reopen/export. No live directory or real course ratings assumed.",
   );
 } finally {
   await browser.close();

@@ -94,7 +94,11 @@ test("world directory safely escapes queries, caches results and never invents r
             {
               type: "way",
               id: 123,
-              tags: { name: "Test Links", "addr:city": "Testtown" },
+              tags: {
+                name: "Test Links",
+                leisure: "golf_course",
+                "addr:city": "Testtown",
+              },
               center: { lat: 56, lon: -3 },
             },
           ],

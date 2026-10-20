@@ -66,3 +66,25 @@ New rounds capture the tee’s pars/indexes and rating/provenance snapshot. Indi
 Attested exports use the player’s captured tee, rather than mutable current course ratings. Legacy rounds without a snapshot report null ratings and cannot safely be assumed eligible for handicap posting. The calculator is a preview based on supplied values; official score acceptance and regional competition rules still require the relevant governing body’s approved workflow.
 
 Nine-hole/short-course ratings, automatic federation verification and full worldwide supplier synchronisation remain outstanding. No complete worldwide dataset is currently populated.
+
+## Open-data download (version 0.9)
+
+A club administrator can use **Courses → Worldwide directory → Download open course directory**. This starts a background download of named golf-course locations mapped in OpenStreetMap, with visible Downloading/Importing/Completed/Failed status. It populates the shared venue directory, which is searched locally before the live provider. Existing scoring tee sets and historical scores are preserved. A successful job reports the actual stored count; it does not claim complete real-world coverage.
+
+The web loader allows a 32 MB response, validates the Overpass export and imports in bounded SQLite transactions. Full downloads have a ten-minute retry cooldown and a 24-hour cooldown after success. Interrupted/failed imports retain valid existing records. Both public mirrors tried in the development environment returned HTTP 403, so a real worldwide download has not been verified here or on Render. The app reports network failures instead of populating fictional courses. Automated tests cover the download workflow with mocked data only.
+
+For an operator with shell access, run against the same persistent `DATABASE_PATH` as the app:
+
+```sh
+npm run import:open-courses
+```
+
+That attempts a public global Overpass download. Alternatively, supply a genuine Overpass JSON export file (up to 128 MB):
+
+```sh
+npm run import:open-courses -- /path/to/overpass-golf-courses.json
+```
+
+The file must contain an `elements` array with named node/way/relation features tagged `leisure=golf_course`. Re-imports update the same OpenStreetMap feature IDs without duplicating them. The importer was exercised with a temporary fixture database, including a repeated import; no real worldwide dataset was seeded during development. Respect the public provider’s usage policy and use regional exports when a global request is unavailable or too large.
+
+Local name search ignores letter case and accents. Country filters retain venues with unknown country because many OpenStreetMap course records lack an explicit country tag. Review the selected location before entering tee data. Imported locations retain OpenStreetMap attribution and contain null rating/slope values. Pars, stroke indexes and official tee-rating values must still be supplied from an appropriate source; a course location alone is not a playable scorecard.

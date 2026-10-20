@@ -174,8 +174,7 @@ export function createApp({
   campaignTimer?.unref();
   server.on("close", () => {
     if (campaignTimer) clearInterval(campaignTimer);
-    campaigns
-      .stop()
+    Promise.allSettled([campaigns.stop(), courseDirectory.stop()])
       .catch(() => {})
       .finally(() => db.close());
   });
@@ -202,7 +201,7 @@ if (
   });
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => {
-      server.close(() => process.exit(0));
+      server.close();
       setTimeout(() => process.exit(1), 10000).unref();
     });
 }
