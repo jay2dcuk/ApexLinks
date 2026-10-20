@@ -446,6 +446,7 @@ export async function operationsAction(name, id, ctx, h) {
     case "ops-report-delete":
       if (confirm("Delete this saved report layout?"))
         await write("report-views/" + id, {}, "DELETE");
+      render();
       break;
     case "ops-report-export": {
       const v = s.reportViews.find((v) => v.id === id),

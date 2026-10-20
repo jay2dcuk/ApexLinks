@@ -5,7 +5,7 @@ import { createApp } from "../server.js";
 const { chromium } = await import(
   process.env.PLAYWRIGHT_MODULE || "playwright"
 );
-let checkoutMetadata, verification;
+let checkoutMetadata, recurringMetadata, verification;
 const password = "Browser-" + randomBytes(18).toString("hex");
 const server = createApp({
   database: ":memory:",
@@ -26,6 +26,14 @@ const server = createApp({
     appURL: "https://app.example",
     fetcher: async (url, opts) => {
       if (url.endsWith("/checkout/sessions")) {
+        const recurring = opts.body.get("mode") === "subscription";
+        if (recurring)
+          recurringMetadata = Object.fromEntries(
+            ["orgId", "apexMembershipId", "attempt"].map((k) => [
+              k,
+              opts.body.get(`metadata[${k}]`),
+            ]),
+          );
         checkoutMetadata = Object.fromEntries(
           ["orgId", "invoiceId", "attempt"].map((k) => [
             k,
@@ -35,12 +43,28 @@ const server = createApp({
         return {
           ok: true,
           json: async () => ({
-            id: "cs_browser",
+            id: recurring ? "cs_recurring" : "cs_browser",
             url: "https://checkout.stripe.com/c/pay/test",
             expires_at: Math.floor(Date.now() / 1000) + 3600,
           }),
         };
       }
+      if (url.endsWith("/subscriptions/sub_recurring"))
+        return {
+          ok: true,
+          json: async () => ({
+            id: "sub_recurring",
+            customer: "cus_recurring",
+            cancel_at_period_end: true,
+          }),
+        };
+      if (url.endsWith("/billing_portal/sessions"))
+        return {
+          ok: true,
+          json: async () => ({
+            url: "https://billing.stripe.com/p/session/mock",
+          }),
+        };
       assert.equal(url, "https://api.stripe.com/v1/refunds");
       return {
         ok: true,
@@ -271,10 +295,158 @@ try {
     await pp.request.get(`${base}/api/orgs/${orgId}/email-preferences`)
   ).json();
   assert.equal(prefs.preferences[0].consented, false);
+  await p.bringToFront();
+  await p.locator('nav [data-page="Memberships"]').click();
+  await p
+    .getByRole("button", { name: "Subscribe annually", exact: true })
+    .click();
+  await p
+    .getByLabel("Golfer", { exact: false })
+    .selectOption(state.players[1].id);
+  await p.getByRole("checkbox").check();
+  await p.route("https://checkout.stripe.com/**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: "<h1>Mock Stripe checkout</h1>",
+    }),
+  );
+  await p
+    .getByRole("button", { name: "Continue to Stripe", exact: true })
+    .click();
+  await p.waitForURL("https://checkout.stripe.com/**");
+  const emit = async (event) => {
+    const raw = JSON.stringify(event),
+      stamp = Math.floor(Date.now() / 1000);
+    const response = await p.request.post(base + "/api/payments/webhook", {
+      headers: {
+        "Content-Type": "application/json",
+        "stripe-signature": `t=${stamp},v1=${createHmac("sha256", "test-secret")
+          .update(stamp + "." + raw)
+          .digest("hex")}`,
+      },
+      data: raw,
+    });
+    assert.equal(response.status(), 200, await response.text());
+  };
+  await emit({
+    id: "evt_recurring_checkout",
+    type: "checkout.session.completed",
+    created: Math.floor(Date.now() / 1000),
+    data: {
+      object: {
+        id: "cs_recurring",
+        mode: "subscription",
+        customer: "cus_recurring",
+        subscription: "sub_recurring",
+        amount_total: 5000,
+        currency: "gbp",
+        metadata: recurringMetadata,
+      },
+    },
+  });
+  let latest = (
+    await (await p.request.get(`${base}/api/orgs/${orgId}/state`)).json()
+  ).state;
+  assert.equal(latest.subscriptions.filter((m) => m.billingId).length, 0);
+  const periodStart = new Date(),
+    periodEnd = new Date(periodStart);
+  periodEnd.setUTCFullYear(periodEnd.getUTCFullYear() + 1);
+  await emit({
+    id: "evt_recurring_invoice",
+    type: "invoice.paid",
+    created: Math.floor(Date.now() / 1000),
+    data: {
+      object: {
+        id: "in_recurring",
+        subscription: "sub_recurring",
+        customer: "cus_recurring",
+        status: "paid",
+        paid: true,
+        amount_paid: 5000,
+        amount_due: 5000,
+        currency: "gbp",
+        payment_intent: "pi_recurring",
+        lines: {
+          data: [
+            {
+              type: "subscription",
+              amount: 5000,
+              period: {
+                start: Math.floor(periodStart.getTime() / 1000),
+                end: Math.floor(periodEnd.getTime() / 1000),
+              },
+            },
+          ],
+        },
+      },
+    },
+  });
+  latest = (
+    await (await p.request.get(`${base}/api/orgs/${orgId}/state`)).json()
+  ).state;
+  const billed = latest.subscriptions.find((m) => m.billingId),
+    billedId = billed.billingId;
+  const wrongManualCancel = await p.request.delete(
+    `${base}/api/orgs/${orgId}/subscriptions/${billed.id}`,
+    { headers: { "X-CSRF-Token": auth.csrf }, data: {} },
+  );
+  assert.equal(wrongManualCancel.status(), 409);
+  const otherPlayerPortal = await pp.request.post(
+    `${base}/api/orgs/${orgId}/billing/${billedId}/portal`,
+    { headers: { "X-CSRF-Token": pa.csrf }, data: {} },
+  );
+  assert.equal(otherPlayerPortal.status(), 403);
+  await p.goto(base);
+  await p.getByRole("heading", { name: "A great day starts here." }).waitFor();
+  await p.locator('nav [data-page="Memberships"]').click();
+  await p.getByRole("button", { name: "Stop renewal", exact: true }).click();
+  await p.getByRole("cell", { name: "Stopped", exact: true }).waitFor();
+  latest = (
+    await (await p.request.get(`${base}/api/orgs/${orgId}/state`)).json()
+  ).state;
+  assert.equal(
+    latest.subscriptions.find((m) => m.billingId === billedId).status,
+    "Active",
+  );
+  const memberContext = await browser.newContext(),
+    memberPage = await memberContext.newPage();
+  await memberPage.goto(base);
+  await memberPage
+    .getByLabel("Email address")
+    .fill("player2@demo.apexlinks.test");
+  await memberPage.getByLabel("Password", { exact: true }).fill(password);
+  await memberPage
+    .getByRole("button", { name: "Sign in →", exact: true })
+    .click();
+  await memberPage
+    .getByRole("heading", { name: "A great day starts here." })
+    .waitFor();
+  const memberState = (
+    await (
+      await memberPage.request.get(`${base}/api/orgs/${orgId}/state`)
+    ).json()
+  ).state;
+  assert.equal(memberState.onlineMemberships.length, 1);
+  assert.equal(memberState.invoices.length, 1);
+  await memberPage.locator('nav [data-page="Memberships"]').click();
+  await memberPage
+    .getByRole("cell", { name: "Stopped", exact: true })
+    .waitFor();
+  await memberPage.route("https://billing.stripe.com/**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: "<h1>Mock billing portal</h1>",
+    }),
+  );
+  await memberPage
+    .getByRole("button", { name: "Billing portal", exact: true })
+    .click();
+  await memberPage.waitForURL("https://billing.stripe.com/**");
+  await memberContext.close();
   await player.close();
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: verified payment, partial refund, accounting export, email verification, player consent, queued campaign acceptance, unsubscribe and restricted permissions (mock providers only).",
+    "PASS: payment/refund/ledger, email verification/consent/campaign/unsubscribe, recurring checkout/verified entitlement/cancellation/portal and restricted permissions (mock providers only).",
   );
 } finally {
   await browser.close();

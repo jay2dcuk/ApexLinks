@@ -54,7 +54,7 @@ Create a Stripe webhook endpoint at `https://apexlinks-qh6p.onrender.com/api/pay
 
 A member may pay only their own invoice; organisers may open checkout for club invoices. Checkout requests use an idempotency key. Paid status comes from a signature-verified webhook with matching invoice, amount, currency, session and payment attempt. Return-page navigation does not mark an invoice paid. The callback rejects stale signatures and processes duplicate events once.
 
-Do not record an external payment or void an invoice while an online checkout may still collect money. **Check payment status** verifies expiry with Stripe before releasing that lock; a local clock reaching the expiry time alone is insufficient. If a network timeout left the session unknown, retry checkout to recover the same attempt first. A paid response waiting for its webhook does not immediately alter the invoice. Investigate failed webhook delivery in Stripe. Automated recurring billing is not implemented. Version 0.5 supports refunds requested inside ApexLinks; see below.
+Do not record an external payment or void an invoice while an online checkout may still collect money. **Check payment status** verifies expiry with Stripe before releasing that lock; a local clock reaching the expiry time alone is insufficient. If a network timeout left the session unknown, retry checkout to recover the same attempt first. A paid response waiting for its webhook does not immediately alter the invoice. Investigate failed webhook delivery in Stripe. Version 0.5 supports refunds and version 0.7 adds fixed-price annual recurring membership billing; see below.
 
 Allow outbound HTTPS to `api.stripe.com` in restricted networks. Browser users navigate to `checkout.stripe.com`. Never put the secret key in browser code.
 
@@ -87,3 +87,19 @@ The same secure Resend settings enable scheduled, plain-text email campaigns. Pl
 The application stores a durable recipient queue, rechecks consent immediately before sending and includes a club-specific unsubscribe link. Requests reuse Resend idempotency keys for bounded retries, stopping before a 24-hour retention period can expire. Provider **Accepted** is not delivery confirmation; check Resend logs for delivery, bounces and complaints. Delivery-event webhooks are not configured in this release. Unknown attempts labelled Review require operator review, not a fresh duplicate campaign.
 
 Keep the web service running for scheduled processing, and use persistent SQLite storage. A sleeping service resumes work when it wakes, which may be later than the requested send time. Configure sender-domain authentication and verify provider limits before using live recipients.
+
+## Annual recurring memberships (Stripe)
+
+Use the existing Stripe secret, HTTPS `APP_URL` and webhook signing secret. Configure the webhook endpoint with API version **2024-06-20**, matching the billing adapter’s explicitly pinned request version. Add:
+
+- `checkout.session.completed` and `checkout.session.expired`
+- `invoice.paid` and `invoice.payment_failed`
+- `customer.subscription.updated` and `customer.subscription.deleted`
+
+Keep the existing one-time payment and refund events enabled. Enable the **Customer portal** in Stripe for payment-method management and stopping renewals at the end of the paid period. Disable plan/quantity changes, discounts, trials and proration for these memberships. Fixed-price annual GBP invoices are the supported model; adjustments and tax additions require operator review and do not automatically extend the local membership record.
+
+Test a new subscription, successful/failed renewal, out-of-order webhook retry, cancellation/resumption and portal ownership in test mode. Use Stripe’s test clocks for renewals if available on your account. A member must be linked by their account email to a club player profile. Existing active manual memberships must be resolved before starting online recurring billing; they are not silently converted or charged.
+
+When an invoice callback arrives before checkout completion, ApexLinks retrieves that subscription through the authenticated Stripe API and validates the saved ApexLinks attempt metadata. Known subscription/customer IDs, invoice amount/currency and a single full annual line period are checked before granting membership dates. Provider errors return a failure so Stripe retries the callback; inspect failed deliveries in Stripe. Already-paid invoice IDs cannot be duplicated by later events.
+
+Stripe-managed invoices cannot be manually marked paid/void or paid through the separate one-time checkout. Membership cancellation retains the period already paid, and refunds are a separate operation. Unknown checkout attempts older than 23 hours require review in Stripe, not a fresh unchecked attempt. Neither signing in nor opening the return page establishes that payment succeeded.

@@ -116,6 +116,10 @@ try {
     .selectOption("landscape");
   await p.getByRole("button", { name: "Save", exact: true }).click();
   await p.locator("dialog").waitFor({ state: "detached" });
+  await p.getByRole("button", { name: "Delete", exact: true }).click();
+  await p
+    .getByRole("cell", { name: "Starter roster", exact: true })
+    .waitFor({ state: "detached" });
   await p.locator('nav [data-page="Tournaments"]').click();
   await p.getByRole("button", { name: "Open →", exact: true }).click();
   await p.getByRole("button", { name: "Save template", exact: true }).click();

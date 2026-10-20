@@ -62,7 +62,7 @@ export function createApp({
             chunks.push(chunk);
           }
           if (req.url === "/api/payments/webhook" && req.method === "POST") {
-            const result = payments.webhook(
+            const result = await payments.webhook(
               Buffer.concat(chunks),
               req.headers["stripe-signature"],
             );

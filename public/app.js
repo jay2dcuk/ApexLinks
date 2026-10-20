@@ -510,7 +510,7 @@ function bookingsView() {
   )}</section>`;
 }
 function membershipsView() {
-  return `${heading("Memberships", "Annual plans, membership dates, and invoices.", manager() ? button("＋ Create plan", "new-plan") + button("Assign membership", "new-subscription", "outline") : "")}<div class="plan-grid">${s.plans.map((p) => `<article class="panel plan"><h2>${esc(p.name)}</h2><strong>${money(p.amount)}</strong><p>Annual plan · GBP</p></article>`).join("")}</div>${manager() || org.role === "player" ? `<section class="panel">${table(["PLAYER", "PLAN", "START", "END", "STATUS", ""], s.subscriptions.map((m) => `<tr><td>${esc(player(m.playerId)?.name)}</td><td>${esc(s.plans.find((p) => p.id === m.planId)?.name)}</td><td>${shortDate(m.start)}</td><td>${shortDate(m.end)}</td><td>${m.status === "Active" && m.end < today() ? "Expired" : m.status}</td><td>${m.status === "Active" && manager() ? button("Cancel", "cancel-subscription", "text-button", `data-id="${m.id}"`) : ""}</td></tr>`).join(""))}</section>` : "<p>Contact your club organiser for your membership record.</p>"}`;
+  return `${heading("Memberships", "Annual plans, membership dates, and invoices.", manager() ? button("＋ Create plan", "new-plan") + button("Assign membership", "new-subscription", "outline") : "")}<div class="plan-grid">${s.plans.map((p) => `<article class="panel plan"><h2>${esc(p.name)}</h2><strong>${money(p.amount)}</strong><p>Annual plan · GBP</p>${config.paymentProvider && (manager() || org.role === "player") && p.amount >= 50 ? button("Subscribe annually", "membership-checkout", "outline", `data-id="${p.id}"`) : ""}</article>`).join("")}</div>${manager() || org.role === "player" ? `<section class="panel">${table(["PLAYER", "PLAN", "START", "END", "STATUS", ""], s.subscriptions.map((m) => `<tr><td>${esc(player(m.playerId)?.name)}</td><td>${esc(s.plans.find((p) => p.id === m.planId)?.name)}</td><td>${shortDate(m.start)}</td><td>${shortDate(m.end)}</td><td>${m.status === "Active" && (m.paidUntil ? Date.parse(m.paidUntil) <= Date.now() : m.end < today()) ? "Expired" : m.status}</td><td>${m.status === "Active" && manager() && !m.billingId ? button("Cancel", "cancel-subscription", "text-button", `data-id="${m.id}"`) : ""}</td></tr>`).join(""))}</section>` : "<p>Contact your club organiser for your membership record.</p>"}${manager() || org.role === "player" ? `<section class="panel"><div class="panel-head"><h2>Online membership billing</h2><p>Renewals extend membership only after a verified paid invoice. Stopping renewal retains the period already paid.</p></div>${table(["PLAYER", "PLAN", "ANNUAL PRICE", "BILLING STATUS", "RENEWAL", ""], (s.onlineMemberships || []).map((m) => `<tr><td>${esc(player(m.playerId)?.name)}</td><td>${esc(m.planName)}</td><td>${money(m.amount)}</td><td>${esc(m.status)}</td><td>${m.cancelAtEnd || m.status === "Cancelled" ? "Stopped" : ["Active", "Past due"].includes(m.status) ? "Annual" : "Awaiting checkout"}</td><td>${["Creating", "Checkout"].includes(m.status) ? button("Resume checkout", "membership-resume", "text-button", `data-id="${m.id}"`) : ["Active", "Past due", "Awaiting payment", "Cancelled"].includes(m.status) ? button("Billing portal", "membership-portal", "text-button", `data-id="${m.id}"`) + (!m.cancelAtEnd && m.status !== "Cancelled" ? button("Stop renewal", "membership-cancel", "text-button", `data-id="${m.id}"`) : "") : ""}</td></tr>`).join(""))}</section>` : ""}`;
 }
 function financeView() {
   if (!manager() && org.role !== "player")
@@ -523,7 +523,7 @@ function financeView() {
     unpaid = s.invoices
       .filter((i) => i.status === "Unpaid")
       .reduce((n, i) => n + i.amount, 0);
-  return `${heading("Finance", "Track entry and membership invoices. Record payments collected outside ApexLinks.", manager() ? button("Export accounting ledger", "accounting-ledger", "outline") : "")}<div class="info-banner">${config.paymentProvider ? "Pay online opens Stripe Checkout; an invoice is marked paid only after a verified webhook." : "Online payments are not configured."} “Record payment” records a payment already received outside this app.</div><section class="stats"><article><span>Paid less confirmed refunds</span><strong>${money(paid)}</strong></article><article><span>Outstanding</span><strong>${money(unpaid)}</strong></article></section><section class="panel">${table(["PLAYER", "DESCRIPTION", "AMOUNT", "STATUS", "REFERENCE", ""], s.invoices.map((i) => `<tr><td>${esc(player(i.playerId)?.name)}</td><td>${esc(i.description)}</td><td>${money(i.amount)}</td><td>${i.status}${i.refundedAmount ? `<small class="decision-reason">Refunded ${money(i.refundedAmount)}</small>` : ""}</td><td>${esc(i.reference || "—")}</td><td>${i.status === "Unpaid" ? (manager() ? button("Record payment", "pay-invoice", "text-button", `data-id="${i.id}"`) + button("Void", "void-invoice", "text-button", `data-id="${i.id}"`) : "") + (config.paymentProvider ? button("Pay online", "checkout", "text-button", `data-id="${i.id}"`) + button("Check payment status", "checkout-status", "text-button", `data-id="${i.id}"`) : "") : manager() && config.paymentProvider && i.paymentIntent && (i.refundedAmount || 0) < i.amount ? button("Refund", "refund-invoice", "text-button", `data-id="${i.id}"`) : ""}</td></tr>`).join(""))}</section>${manager() ? `<section class="panel"><div class="panel-head"><h2>Refund history</h2><p>Unconfirmed refunds reserve the amount until Stripe confirms the outcome.</p></div>${table(["INVOICE", "AMOUNT", "REASON", "STATUS", ""], (s.refunds || []).map((r) => `<tr><td>${esc(s.invoices.find((i) => i.id === r.invoiceId)?.description)}</td><td>${money(r.amount)}</td><td>${esc(r.reason)}</td><td>${esc(r.status)}</td><td>${["Creating", "Pending"].includes(r.status) ? button(r.status === "Creating" ? "Retry safely" : "Check refund status", "refund-status", "text-button", `data-id="${r.id}"`) : ""}</td></tr>`).join(""))}</section>` : ""}`;
+  return `${heading("Finance", "Track entry and membership invoices. Record payments collected outside ApexLinks.", manager() ? button("Export accounting ledger", "accounting-ledger", "outline") : "")}<div class="info-banner">${config.paymentProvider ? "Pay online opens Stripe Checkout; an invoice is marked paid only after a verified webhook." : "Online payments are not configured."} “Record payment” records a payment already received outside this app.</div><section class="stats"><article><span>Paid less confirmed refunds</span><strong>${money(paid)}</strong></article><article><span>Outstanding</span><strong>${money(unpaid)}</strong></article></section><section class="panel">${table(["PLAYER", "DESCRIPTION", "AMOUNT", "STATUS", "REFERENCE", ""], s.invoices.map((i) => `<tr><td>${esc(player(i.playerId)?.name)}</td><td>${esc(i.description)}</td><td>${money(i.amount)}</td><td>${i.status}${i.refundedAmount ? `<small class="decision-reason">Refunded ${money(i.refundedAmount)}</small>` : ""}</td><td>${esc(i.reference || "—")}</td><td>${i.status === "Unpaid" && i.billingId ? button("Billing portal", "membership-portal", "text-button", `data-id="${i.billingId}"`) : i.status === "Unpaid" ? (manager() ? button("Record payment", "pay-invoice", "text-button", `data-id="${i.id}"`) + button("Void", "void-invoice", "text-button", `data-id="${i.id}"`) : "") + (config.paymentProvider ? button("Pay online", "checkout", "text-button", `data-id="${i.id}"`) + button("Check payment status", "checkout-status", "text-button", `data-id="${i.id}"`) : "") : manager() && config.paymentProvider && i.paymentIntent && (i.refundedAmount || 0) < i.amount ? button("Refund", "refund-invoice", "text-button", `data-id="${i.id}"`) : ""}</td></tr>`).join(""))}</section>${manager() ? `<section class="panel"><div class="panel-head"><h2>Refund history</h2><p>Unconfirmed refunds reserve the amount until Stripe confirms the outcome.</p></div>${table(["INVOICE", "AMOUNT", "REASON", "STATUS", ""], (s.refunds || []).map((r) => `<tr><td>${esc(s.invoices.find((i) => i.id === r.invoiceId)?.description)}</td><td>${money(r.amount)}</td><td>${esc(r.reason)}</td><td>${esc(r.status)}</td><td>${["Creating", "Pending"].includes(r.status) ? button(r.status === "Creating" ? "Retry safely" : "Check refund status", "refund-status", "text-button", `data-id="${r.id}"`) : ""}</td></tr>`).join(""))}</section>` : ""}`;
 }
 function reportsView() {
   return `${heading("Club insights", "Participation and scoring statistics from your organisation.", manager() ? button("Export records", "export-all", "outline") : "")}<section class="stats">${[
@@ -1385,6 +1385,76 @@ function bind() {
               );
               break;
             }
+          case "membership-resume":
+          case "membership-checkout": {
+            const pending =
+              b.dataset.action === "membership-resume"
+                ? s.onlineMemberships.find((m) => m.id === id)
+                : null;
+            const plan = s.plans.find((p) => p.id === (pending?.planId || id));
+            const golfers = s.players.filter((p) =>
+              pending
+                ? p.id === pending.playerId
+                : manager() || p.email === me.email,
+            );
+            if (!golfers.length)
+              throw Error(
+                "Ask your club organiser to link a player profile to your account email.",
+              );
+            dialog(
+              "Annual recurring membership",
+              `<p>${esc(pending?.planName || plan.name)} renews every year at ${money(pending?.amount ?? plan.amount)} until you stop renewal. Your membership starts after Stripe confirms the paid invoice.</p>` +
+                select(
+                  "Golfer",
+                  "playerId",
+                  golfers.map((p) => [p.id, p.name]),
+                  golfers[0].id,
+                ) +
+                '<label class="check-label"><input type="checkbox" required>I agree to annual recurring payments through Stripe.</label>',
+              async (form) => {
+                const result = await api(
+                  endpoint(`billing/${pending?.planId || id}/checkout`),
+                  "POST",
+                  { playerId: form.get("playerId") },
+                );
+                const url = new URL(result.url);
+                if (
+                  url.protocol !== "https:" ||
+                  url.hostname !== "checkout.stripe.com"
+                )
+                  throw Error("Invalid membership checkout URL.");
+                location.assign(url.href);
+              },
+              { submit: "Continue to Stripe" },
+            );
+            break;
+          }
+          case "membership-portal": {
+            const result = await api(
+              endpoint(`billing/${id}/portal`),
+              "POST",
+              {},
+            );
+            const url = new URL(result.url);
+            if (
+              url.protocol !== "https:" ||
+              url.hostname !== "billing.stripe.com"
+            )
+              throw Error("Invalid billing portal URL.");
+            location.assign(url.href);
+            break;
+          }
+          case "membership-cancel":
+            if (
+              confirm(
+                "Stop future annual renewal in Stripe? The membership period already paid for is retained.",
+              )
+            ) {
+              const result = await write(`billing/${id}/cancel`, {});
+              render();
+              toast(result.message);
+            }
+            break;
           case "checkout-status": {
             const d = await api(endpoint("checkout-status/" + id), "POST", {});
             toast(d.message);
@@ -1790,6 +1860,7 @@ function bind() {
               `refunds/${id}/${row.status === "Creating" ? "retry" : "status"}`,
               {},
             );
+            render();
             toast(result.message);
             break;
           }
@@ -1970,8 +2041,10 @@ function bind() {
               confirm(
                 "Cancel unsent campaign emails? Emails already being accepted cannot be recalled.",
               )
-            )
+            ) {
               await write(`campaigns/${id}/cancel`, {});
+              render();
+            }
             break;
           case "verify-email": {
             const result = await api("auth/verify-request", "POST", {});

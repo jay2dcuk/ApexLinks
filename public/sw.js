@@ -1,4 +1,4 @@
-const CACHE = "apexlinks-shell-v06";
+const CACHE = "apexlinks-shell-v07";
 const ASSETS = [
   "/",
   "/index.html",
