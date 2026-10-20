@@ -54,7 +54,7 @@ Create a Stripe webhook endpoint at `https://apexlinks-qh6p.onrender.com/api/pay
 
 A member may pay only their own invoice; organisers may open checkout for club invoices. Checkout requests use an idempotency key. Paid status comes from a signature-verified webhook with matching invoice, amount, currency, session and payment attempt. Return-page navigation does not mark an invoice paid. The callback rejects stale signatures and processes duplicate events once.
 
-Do not record an external payment or void an invoice while an online checkout may still collect money. **Check payment status** verifies expiry with Stripe before releasing that lock; a local clock reaching the expiry time alone is insufficient. If a network timeout left the session unknown, retry checkout to recover the same attempt first. A paid response waiting for its webhook does not immediately alter the invoice. Investigate failed webhook delivery in Stripe. Recurring billing and automated refunds are not implemented.
+Do not record an external payment or void an invoice while an online checkout may still collect money. **Check payment status** verifies expiry with Stripe before releasing that lock; a local clock reaching the expiry time alone is insufficient. If a network timeout left the session unknown, retry checkout to recover the same attempt first. A paid response waiting for its webhook does not immediately alter the invoice. Investigate failed webhook delivery in Stripe. Automated recurring billing is not implemented. Version 0.5 supports refunds requested inside ApexLinks; see below.
 
 Allow outbound HTTPS to `api.stripe.com` in restricted networks. Browser users navigate to `checkout.stripe.com`. Never put the secret key in browser code.
 
@@ -68,4 +68,14 @@ In Render, add:
 
 Allow outbound HTTPS to `api.resend.com` if networking is restricted. The Forgot password flow sends a single-use link valid for 30 minutes. Only token hashes are stored. Successful reset invalidates every existing session and outstanding reset token for that account. Without configured email delivery, the UI tells users recovery is unavailable; it does not pretend to send mail.
 
-Invitations still use codes that administrators share themselves. SMS, general event-email campaigns, push notifications, email verification and accounting synchronisation are not implemented. Real provider delivery and card processing have not been validated without credentials; tests use simulated provider responses and signed test webhooks.
+Invitations still use codes that administrators share themselves. SMS, general event-email campaigns, push notifications and direct accounting synchronisation are not implemented. Email verification is supported through the same configured sender. Real provider delivery and card processing have not been validated without credentials; tests use simulated provider responses and signed test webhooks.
+
+## Stripe refunds
+
+Add `refund.created`, `refund.updated` and `refund.failed` to the existing signed webhook endpoint. Use the same Stripe mode/account as the original payment. Authorised organisers can refund verified Stripe invoice payments in Finance; manually recorded external payments cannot be refunded through this endpoint.
+
+Refunds may be partial. Pending/unconfirmed amounts remain reserved, and a timeout must be resolved through the existing refund’s **Retry safely** / **Check refund status** control. A refund unknown for more than 23 hours requires operator review in Stripe; ApexLinks will not risk replaying it after an idempotency key may have expired. Do not issue a second refund in the Stripe dashboard while an ApexLinks attempt is unresolved. Dashboard-created refunds are not automatically imported and will make the local ledger incomplete until reconciled by an operator. Keep live access restricted to authorised club finance staff.
+
+## Email verification
+
+The existing `RESEND_API_KEY`, `EMAIL_FROM` and HTTPS `APP_URL` settings also enable verification in Settings. Links expire after 24 hours and require explicit confirmation. They cannot reset a password. ApexLinks stores a verification timestamp separately from password recovery and does not block existing accounts pending verification. Provider acceptance of a message is not proof of inbox delivery; check the provider delivery logs and sender-domain configuration.

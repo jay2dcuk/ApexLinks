@@ -43,7 +43,7 @@ export function inboxView(ctx, h) {
 export function reportsExtension(ctx, h) {
   if (!["admin", "manager"].includes(ctx.org.role)) return "";
   const { button, table, esc } = h;
-  return `<section class="panel ops-panel"><div class="panel-head"><h2>Custom report views</h2><p>Financial amounts export in minor units (pence).</p>${button("Build report", "ops-report", "outline")}</div>${table(["REPORT", "SOURCE", "COLUMNS", ""], ctx.s.reportViews.map((v) => `<tr><td>${esc(v.name)}</td><td>${v.dataset}</td><td>${v.columns.map(esc).join(", ")}</td><td>${button("Export CSV", "ops-report-export", "text-button", `data-id="${v.id}"`)}</td></tr>`).join(""))}</section>`;
+  return `<section class="panel ops-panel"><div class="panel-head"><h2>Custom report views</h2><p>Financial amounts export in minor units (pence).</p>${button("Build report", "ops-report", "outline")}</div>${table(["REPORT", "SOURCE", "COLUMNS", ""], ctx.s.reportViews.map((v) => `<tr><td>${esc(v.name)}</td><td>${v.dataset}</td><td>${v.columns.map(esc).join(", ")}</td><td>${button("Preview / print", "ops-report-print", "text-button", `data-id="${v.id}"`)}${button("Edit", "ops-report-edit", "text-button", `data-id="${v.id}"`)}${button("Export CSV", "ops-report-export", "text-button", `data-id="${v.id}"`)}${button("Delete", "ops-report-delete", "text-button", `data-id="${v.id}"`)}</td></tr>`).join(""))}</section>`;
 }
 export async function operationsAction(name, id, ctx, h) {
   if (!name.startsWith("ops-")) return false;
@@ -382,20 +382,39 @@ export async function operationsAction(name, id, ctx, h) {
       await write("receipts", { messageId: id });
       render();
       break;
+    case "ops-report-edit":
     case "ops-report": {
+      const view =
+        name === "ops-report-edit"
+          ? s.reportViews.find((v) => v.id === id)
+          : null;
       const d = dialog(
         "Build custom report",
-        input("Report name", "name", "", "text", "required") +
+        input("Report name", "name", view?.name || "", "text", "required") +
           select(
             "Data source",
             "dataset",
             Object.keys(reportDatasets),
-            "players",
+            view?.dataset || "players",
           ) +
+          input("Subtitle", "subtitle", view?.subtitle || "") +
+          input("Printed footer", "footer", view?.footer || "") +
+          select(
+            "Page orientation",
+            "orientation",
+            ["portrait", "landscape"],
+            view?.orientation || "portrait",
+          ) +
+          `<label class="check-label"><input type="checkbox" name="showOrgName" ${view?.showOrgName !== false ? "checked" : ""}>Include club name</label><label class="check-label"><input type="checkbox" name="showTotals" ${view?.showTotals ? "checked" : ""}>Show monetary totals</label>` +
           '<fieldset class="report-columns"><legend>Columns</legend></fieldset>' +
-          input("Status equals (optional)", "status", ""),
+          input("Status equals (optional)", "status", view?.status || ""),
         async (f) =>
-          write("report-views", {
+          write("report-views" + (view ? "/" + view.id : ""), {
+            subtitle: f.get("subtitle"),
+            footer: f.get("footer"),
+            orientation: f.get("orientation"),
+            showOrgName: f.has("showOrgName"),
+            showTotals: f.has("showTotals"),
             name: f.get("name"),
             dataset: f.get("dataset"),
             status: f.get("status"),
@@ -409,7 +428,7 @@ export async function operationsAction(name, id, ctx, h) {
           reportDatasets[dataset]
             .map(
               (c) =>
-                `<label class="check-label"><input type="checkbox" name="columns" value="${c}" checked>${c}</label>`,
+                `<label class="check-label"><input type="checkbox" name="columns" value="${c}" ${!view || dataset !== view.dataset || view.columns.includes(c) ? "checked" : ""}>${c}</label>`,
             )
             .join("");
       };
@@ -417,6 +436,17 @@ export async function operationsAction(name, id, ctx, h) {
       refresh();
       break;
     }
+    case "ops-report-print":
+      window.open(
+        `/print.html?org=${encodeURIComponent(org.id)}&view=${encodeURIComponent(id)}`,
+        "_blank",
+        "noopener",
+      );
+      break;
+    case "ops-report-delete":
+      if (confirm("Delete this saved report layout?"))
+        await write("report-views/" + id, {}, "DELETE");
+      break;
     case "ops-report-export": {
       const v = s.reportViews.find((v) => v.id === id),
         data = reportRows(s, v);

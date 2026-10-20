@@ -58,6 +58,42 @@ function fixture(format = "Stroke play") {
   return s;
 }
 const user = { user_id: "u", name: "Admin", email: "admin@example.com" };
+test("report layouts validate options, edit in place and delete with staff permissions", () => {
+  const s = fixture();
+  const body = {
+    name: "Roster",
+    dataset: "players",
+    columns: ["name", "handicap"],
+    orientation: "landscape",
+    subtitle: "Morning field",
+    footer: "Starter copy",
+    showTotals: true,
+  };
+  const view = op(s, "report-views", body);
+  assert.equal(view.orientation, "landscape");
+  assert.throws(() =>
+    op(s, "report-views", { ...body, orientation: "arbitrary" }),
+  );
+  assert.throws(() => op(s, "report-views", body, { role: "player" }));
+  op(
+    s,
+    "report-views",
+    { ...body, name: "Revised roster" },
+    { resourceId: view.id },
+  );
+  assert.equal(s.reportViews.length, 1);
+  assert.equal(s.reportViews[0].name, "Revised roster");
+  assert.throws(() =>
+    op(
+      s,
+      "report-views",
+      {},
+      { resourceId: view.id, method: "DELETE", role: "viewer" },
+    ),
+  );
+  op(s, "report-views", {}, { resourceId: view.id, method: "DELETE" });
+  assert.equal(s.reportViews.length, 0);
+});
 function op(s, resource, b, extra = {}) {
   return operationsOperation(s, {
     resource,

@@ -518,11 +518,11 @@ function financeView() {
     );
   const paid = s.invoices
       .filter((i) => i.status === "Paid")
-      .reduce((n, i) => n + i.amount, 0),
+      .reduce((n, i) => n + i.amount - (i.refundedAmount || 0), 0),
     unpaid = s.invoices
       .filter((i) => i.status === "Unpaid")
       .reduce((n, i) => n + i.amount, 0);
-  return `${heading("Finance", "Track entry and membership invoices. Record payments collected outside ApexLinks.")}<div class="info-banner">${config.paymentProvider ? "Pay online opens Stripe Checkout; an invoice is marked paid only after a verified webhook." : "Online payments are not configured."} “Record payment” records a payment already received outside this app.</div><section class="stats"><article><span>Recorded paid</span><strong>${money(paid)}</strong></article><article><span>Outstanding</span><strong>${money(unpaid)}</strong></article></section><section class="panel">${table(["PLAYER", "DESCRIPTION", "AMOUNT", "STATUS", "REFERENCE", ""], s.invoices.map((i) => `<tr><td>${esc(player(i.playerId)?.name)}</td><td>${esc(i.description)}</td><td>${money(i.amount)}</td><td>${i.status}</td><td>${esc(i.reference || "—")}</td><td>${i.status === "Unpaid" ? (manager() ? button("Record payment", "pay-invoice", "text-button", `data-id="${i.id}"`) + button("Void", "void-invoice", "text-button", `data-id="${i.id}"`) : "") + (config.paymentProvider ? button("Pay online", "checkout", "text-button", `data-id="${i.id}"`) + button("Check payment status", "checkout-status", "text-button", `data-id="${i.id}"`) : "") : ""}</td></tr>`).join(""))}</section>`;
+  return `${heading("Finance", "Track entry and membership invoices. Record payments collected outside ApexLinks.", manager() ? button("Export accounting ledger", "accounting-ledger", "outline") : "")}<div class="info-banner">${config.paymentProvider ? "Pay online opens Stripe Checkout; an invoice is marked paid only after a verified webhook." : "Online payments are not configured."} “Record payment” records a payment already received outside this app.</div><section class="stats"><article><span>Paid less confirmed refunds</span><strong>${money(paid)}</strong></article><article><span>Outstanding</span><strong>${money(unpaid)}</strong></article></section><section class="panel">${table(["PLAYER", "DESCRIPTION", "AMOUNT", "STATUS", "REFERENCE", ""], s.invoices.map((i) => `<tr><td>${esc(player(i.playerId)?.name)}</td><td>${esc(i.description)}</td><td>${money(i.amount)}</td><td>${i.status}${i.refundedAmount ? `<small class="decision-reason">Refunded ${money(i.refundedAmount)}</small>` : ""}</td><td>${esc(i.reference || "—")}</td><td>${i.status === "Unpaid" ? (manager() ? button("Record payment", "pay-invoice", "text-button", `data-id="${i.id}"`) + button("Void", "void-invoice", "text-button", `data-id="${i.id}"`) : "") + (config.paymentProvider ? button("Pay online", "checkout", "text-button", `data-id="${i.id}"`) + button("Check payment status", "checkout-status", "text-button", `data-id="${i.id}"`) : "") : manager() && config.paymentProvider && i.paymentIntent && (i.refundedAmount || 0) < i.amount ? button("Refund", "refund-invoice", "text-button", `data-id="${i.id}"`) : ""}</td></tr>`).join(""))}</section>${manager() ? `<section class="panel"><div class="panel-head"><h2>Refund history</h2><p>Unconfirmed refunds reserve the amount until Stripe confirms the outcome.</p></div>${table(["INVOICE", "AMOUNT", "REASON", "STATUS", ""], (s.refunds || []).map((r) => `<tr><td>${esc(s.invoices.find((i) => i.id === r.invoiceId)?.description)}</td><td>${money(r.amount)}</td><td>${esc(r.reason)}</td><td>${esc(r.status)}</td><td>${["Creating", "Pending"].includes(r.status) ? button(r.status === "Creating" ? "Retry safely" : "Check refund status", "refund-status", "text-button", `data-id="${r.id}"`) : ""}</td></tr>`).join(""))}</section>` : ""}`;
 }
 function reportsView() {
   return `${heading("Club insights", "Participation and scoring statistics from your organisation.", manager() ? button("Export records", "export-all", "outline") : "")}<section class="stats">${[
@@ -557,7 +557,7 @@ function reportsView() {
   )}</section>`;
 }
 function settingsView() {
-  return `${heading("Workspace settings", "Manage access to your organisations and secure your account.")}<section class="panel settings-section"><h2>${esc(org.name)}</h2><p>Your role: ${esc(org.role)} · Signed in as ${esc(me.email)}</p><div class="button-row">${org.role === "admin" ? button("Invite member", "invite") + button("Manage roles", "members", "outline") : ""}${button("New organisation", "new-org", "outline")}${button("Join organisation", "join", "outline")}${button("Change password", "password", "outline")}${button(offlineEnabled(me.id) ? "Remove offline workspace" : "Enable offline workspace", "offline-workspace", "outline")}${button("Sign out", "logout", "outline")}</div></section>${
+  return `${heading("Workspace settings", "Manage access to your organisations and secure your account.")}<section class="panel settings-section"><h2>${esc(org.name)}</h2><p>Your role: ${esc(org.role)} · Signed in as ${esc(me.email)}</p><div class="button-row">${org.role === "admin" ? button("Invite member", "invite") + button("Manage roles", "members", "outline") : ""}${button("New organisation", "new-org", "outline")}${button("Join organisation", "join", "outline")}${button("Change password", "password", "outline")}${me.emailVerified ? '<span class="badge">Email verified</span>' : button("Verify email", "verify-email", "outline")}${button(offlineEnabled(me.id) ? "Remove offline workspace" : "Enable offline workspace", "offline-workspace", "outline")}${button("Sign out", "logout", "outline")}</div></section>${
     manager()
       ? `<section class="panel"><div class="panel-head"><h2>Audit history</h2></div>${table(
           ["WHEN", "USER", "ACTION"],
@@ -1702,6 +1702,78 @@ function bind() {
               render();
             }
             break;
+          case "accounting-ledger":
+            dialog(
+              "Export accounting ledger",
+              "<p>Cash receipts and confirmed Stripe refunds, using UTC dates. Amounts are GBP. This export does not calculate tax, fees, or bank settlement totals.</p>" +
+                input(
+                  "From date",
+                  "from",
+                  today().slice(0, 4) + "-01-01",
+                  "date",
+                  "required",
+                ) +
+                input("To date", "to", today(), "date", "required"),
+              async (f) => {
+                const result = await api(
+                  endpoint("accounting-ledger") +
+                    "?" +
+                    new URLSearchParams({
+                      from: f.get("from"),
+                      to: f.get("to"),
+                    }),
+                );
+                downloadCSV("apexlinks-accounting-ledger.csv", [
+                  result.columns,
+                  ...result.rows,
+                ]);
+              },
+              { submit: "Export CSV" },
+            );
+            break;
+          case "refund-invoice": {
+            const invoice = s.invoices.find((i) => i.id === id);
+            dialog(
+              "Refund Stripe payment",
+              `<p>This sends money back through Stripe. Maximum ${money(invoice.amount - (invoice.refundedAmount || 0))}.</p>` +
+                input(
+                  "Amount (GBP)",
+                  "amount",
+                  (
+                    (invoice.amount - (invoice.refundedAmount || 0)) /
+                    100
+                  ).toFixed(2),
+                  "number",
+                  'required min="0.01" step="0.01"',
+                ) +
+                input(
+                  "Refund reason",
+                  "reason",
+                  "",
+                  "text",
+                  'required maxlength="240"',
+                ),
+              async (f) => {
+                const result = await write("refunds", {
+                  invoiceId: id,
+                  amount: Math.round(Number(f.get("amount")) * 100),
+                  reason: f.get("reason"),
+                });
+                alert(result.message);
+              },
+              { submit: "Send refund" },
+            );
+            break;
+          }
+          case "refund-status": {
+            const row = s.refunds.find((r) => r.id === id);
+            const result = await write(
+              `refunds/${id}/${row.status === "Creating" ? "retry" : "status"}`,
+              {},
+            );
+            toast(result.message);
+            break;
+          }
           case "pay-invoice":
             dialog(
               "Record external payment",
@@ -1804,6 +1876,11 @@ function bind() {
                 await loadOrg(org.id);
               },
             );
+            break;
+          }
+          case "verify-email": {
+            const result = await api("auth/verify-request", "POST", {});
+            toast(result.message);
             break;
           }
           case "password":
@@ -1962,6 +2039,28 @@ setInterval(async () => {
   }
 }, 10000);
 async function boot() {
+  const verificationCode = new URLSearchParams(location.search).get("verify");
+  if (verificationCode) {
+    history.replaceState({}, "", "/");
+    document.querySelector("#app").innerHTML =
+      '<section class="auth-form"><a class="brand" href="/">ApexLinks.</a><h2>Verify your email</h2><p>Confirm that you requested this verification link.</p><button id="verify-email" class="primary">Confirm email verification</button><p id="verify-result" role="status"></p><a href="/">Return to ApexLinks</a></section>';
+    document.querySelector("#verify-email").onclick = async (event) => {
+      event.target.disabled = true;
+      try {
+        const session = await api("auth/me");
+        csrf = session.csrf || "";
+        const result = await api("auth/verify", "POST", {
+          token: verificationCode,
+        });
+        document.querySelector("#verify-result").textContent = result.message;
+        event.target.remove();
+      } catch (error) {
+        document.querySelector("#verify-result").textContent = error.message;
+        event.target.disabled = false;
+      }
+    };
+    return;
+  }
   const resetCode = new URLSearchParams(location.search).get("reset");
   if (resetCode) return renderPasswordReset(resetCode);
   const publicCode = new URLSearchParams(location.search).get("leaderboard");

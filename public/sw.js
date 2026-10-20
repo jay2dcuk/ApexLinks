@@ -1,4 +1,4 @@
-const CACHE = "apexlinks-shell-v04";
+const CACHE = "apexlinks-shell-v05";
 const ASSETS = [
   "/",
   "/index.html",
@@ -9,6 +9,9 @@ const ASSETS = [
   "/operations.js",
   "/operations-ui.js",
   "/offline.js",
+  "/print.html",
+  "/print.js",
+  "/print.css",
   "/manifest.webmanifest",
   "/icon.svg",
 ];

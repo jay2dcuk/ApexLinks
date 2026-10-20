@@ -1,0 +1,104 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #182b26;
+  background: #e8ece9;
+}
+body {
+  margin: 0;
+}
+nav {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 18px 30px;
+  background: #183e35;
+  color: white;
+}
+button {
+  padding: 12px 20px;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+main {
+  background: white;
+  max-width: 1100px;
+  margin: 30px auto;
+  padding: 40px;
+  box-shadow: 0 3px 20px #0001;
+}
+h1 {
+  font-size: 30px;
+  margin: 8px 0;
+}
+.club {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+.metadata {
+  font-size: 12px;
+  color: #53645c;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 24px;
+  font-size: 12px;
+}
+th,
+td {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid #dce3dd;
+  overflow-wrap: anywhere;
+}
+th {
+  background: #eef3ee;
+}
+tfoot {
+  font-weight: bold;
+}
+footer {
+  margin-top: 28px;
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+thead {
+  display: table-header-group;
+}
+tr {
+  break-inside: avoid;
+}
+@page {
+  size: A4 portrait;
+  margin: 14mm;
+}
+@page wide {
+  size: A4 landscape;
+  margin: 14mm;
+}
+.landscape main {
+  page: wide;
+}
+@media print {
+  :root {
+    background: white;
+  }
+  nav {
+    display: none;
+  }
+  main {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+  th {
+    background: transparent;
+  }
+  a {
+    color: inherit;
+  }
+}

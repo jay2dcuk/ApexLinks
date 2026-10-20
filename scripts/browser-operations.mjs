@@ -93,6 +93,29 @@ try {
   const download = p.waitForEvent("download");
   await p.getByRole("button", { name: "Export CSV", exact: true }).click();
   assert.equal((await download).suggestedFilename(), "apexlinks-report.csv");
+  const popupEvent = ctx.waitForEvent("page");
+  await p.getByRole("button", { name: "Preview / print", exact: true }).click();
+  const reportPage = await popupEvent;
+  await reportPage.getByRole("heading", { name: "Starter roster" }).waitFor();
+  assert.equal(await reportPage.locator("tbody tr").count(), players.length);
+  assert.equal(
+    await reportPage
+      .getByRole("button", { name: "Print / save PDF" })
+      .isEnabled(),
+    true,
+  );
+  await reportPage.pdf({
+    path: "/tmp/apexlinks-roster.pdf",
+    preferCSSPageSize: true,
+  });
+  await reportPage.close();
+  await p.getByRole("button", { name: "Edit", exact: true }).click();
+  await p.getByLabel("Subtitle", { exact: true }).fill("Morning starter copy");
+  await p
+    .locator('dialog select[name="orientation"]')
+    .selectOption("landscape");
+  await p.getByRole("button", { name: "Save", exact: true }).click();
+  await p.locator("dialog").waitFor({ state: "detached" });
   await p.locator('nav [data-page="Tournaments"]').click();
   await p.getByRole("button", { name: "Open →", exact: true }).click();
   await p.getByRole("button", { name: "Save template", exact: true }).click();
